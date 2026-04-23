@@ -1,0 +1,176 @@
+# lexrs
+
+A Rust library implementing two efficient lexicon data structures — **Trie** and **DAWG** (Directed Acyclic Word Graph) — with an optional Python binding via [PyO3](https://pyo3.rs) and [Maturin](https://maturin.rs).
+
+`lexrs` is the successor to [lexpy](https://github.com/aosingh/lexpy) (pure Python). It exposes the same API while delivering 10–100× faster insertion and search by moving the core data structures to Rust.
+
+## Table of contents
+
+- [Data structures](#data-structures)
+- [Features](#features)
+- [Rust usage](#rust-usage)
+- [Python usage](#python-usage)
+  - [Build & install](#build--install)
+  - [API](#api)
+  - [Wildcard syntax](#wildcard-syntax)
+- [Running tests](#running-tests)
+- [Project structure](#project-structure)
+- [Related components](#related-components)
+- [License](#license)
+
+## Data structures
+
+### Trie
+
+A standard prefix tree using arena allocation (`Vec<Node>`). Supports insertion in any order.
+
+### DAWG
+
+A minimized Trie that compresses shared suffixes in addition to shared prefixes, resulting in a significantly smaller node count for large lexicons. Words **must be inserted in lexicographic (alphabetical) order**; call `reduce()` after all insertions to finalize minimization.
+
+## Features
+
+Both `Trie` and `DAWG` expose the same API:
+
+| Method | Description |
+|---|---|
+| `add(word, count)` | Insert a word with an optional frequency count |
+| `add_all(words)` | Insert from any iterable |
+| `add_from_file(path)` | Insert words from a file (one per line) |
+| `contains(word)` | Exact membership test |
+| `contains_prefix(prefix)` | Check if any word starts with the given prefix |
+| `search(pattern)` | Wildcard search (`*` = zero or more chars, `?` = exactly one) |
+| `search_with_count(pattern)` | Like `search`, but returns `(word, count)` pairs |
+| `search_with_prefix(prefix)` | All words beginning with the prefix |
+| `search_with_prefix_count(prefix)` | Like above, with counts |
+| `search_within_distance(word, dist)` | Levenshtein fuzzy search |
+| `search_within_distance_count(word, dist)` | Like above, with counts |
+| `word_count()` | Number of words stored |
+| `node_count()` | Number of nodes in the structure |
+
+## Rust usage
+
+```toml
+# Cargo.toml
+[dependencies]
+lexrs = { path = "." }
+```
+
+```rust
+use lexrs::{Trie, Dawg};
+
+// Trie
+let mut trie = Trie::new();
+trie.add("hello", 1).unwrap();
+trie.add_all(vec!["world".to_string(), "foo".to_string()]).unwrap();
+
+assert!(trie.contains("hello"));
+assert!(trie.contains_prefix("wor"));
+
+let results = trie.search("h*").unwrap();       // wildcard
+let fuzzy   = trie.search_within_distance("helo", 1); // Levenshtein ≤ 1
+
+// DAWG (words must be inserted in alphabetical order)
+let mut dawg = Dawg::new();
+dawg.add_all(vec!["apple".to_string(), "apply".to_string(), "apt".to_string()]).unwrap();
+// add_all sorts automatically; call reduce() if you use add() directly
+dawg.reduce();
+
+assert!(dawg.contains("apple"));
+```
+
+## Python usage
+
+The library is also available as the `lexrs` Python package, built with Maturin.
+
+### Build & install
+
+```bash
+# Install Maturin (once)
+pip install maturin
+
+# Build and install into the current virtualenv
+maturin develop --features python
+```
+
+### API
+
+```python
+from lexrs import Trie, DAWG
+
+# ── Trie ──────────────────────────────────────────────────────────────────────
+t = Trie()
+t.add("hello", 5)          # word + optional count
+t.add_all(["world", "foo"])
+t.add_from_file("words.txt")
+
+"hello" in t               # True
+t.contains_prefix("wor")   # True
+t.get_word_count()         # total words
+len(t)                     # total nodes
+
+t.search("h*")                          # wildcard, returns list of words
+t.search("h*", with_count=True)         # returns list of (word, count)
+t.search_with_prefix("wo")              # prefix completion
+t.search_with_prefix_count("wo")        # with counts
+t.search_within_distance("helo", 1)     # fuzzy (Levenshtein ≤ 1)
+t.search_within_distance("helo", 1, with_count=True)
+
+# ── DAWG ──────────────────────────────────────────────────────────────────────
+d = DAWG()
+d.add_all(["apple", "apply", "apt"])   # sorted automatically
+
+"apple" in d               # True
+d.search("ap*")            # wildcard
+d.search_within_distance("aple", dist=1)
+```
+
+### Wildcard syntax
+
+| Pattern | Meaning |
+|---|---|
+| `*` | Zero or more characters |
+| `?` | Exactly one character |
+| `h*` | All words starting with `h` |
+| `?at` | Three-letter words ending in `at` |
+| `a?*` | Words of two or more characters starting with `a` |
+
+Consecutive wildcards are normalized (`**` → `*`, `?*` → `*`).
+
+## Running tests
+
+```bash
+# Rust unit tests
+cargo test
+
+# Python tests (requires the package to be built first)
+maturin develop --features python
+pytest tests/
+```
+
+## Project structure
+
+```
+src/
+  lib.rs      — public re-exports and Python module registration
+  trie.rs     — Trie implementation + wildcard / Levenshtein helpers
+  dawg.rs     — DAWG implementation
+  node.rs     — shared Node type (arena-allocated)
+  utils.rs    — file I/O and pattern normalization
+  error.rs    — LexError enum
+tests/
+  test_python_api.py — pytest suite for the Python bindings
+```
+
+## Related components
+
+| Directory | Description |
+|---|---|
+| [lexrs-server/](lexrs-server/) | Production HTTP server — a **writer** binary for word ingestion and compaction, and a **reader** binary for search. Readers scale horizontally and hot-reload snapshots via Consul. |
+| [docker/](docker/) | Docker Compose setup running the full stack: Consul, writer, two reader replicas, and an nginx reverse proxy that routes reads and writes to the right service. |
+| [benchmarks/](benchmarks/) | Python scripts comparing `lexrs` against `lexpy` (pure Python) across insertion, prefix, wildcard, and Levenshtein workloads. |
+| [tests/](tests/) | Integration tests — `pytest` suite for the Python API and Rust-level integration tests. |
+
+## License
+
+MIT

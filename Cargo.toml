@@ -1,0 +1,3 @@
+[workspace]
+members  = ["lexrs", "lexrs-server"]
+resolver = "2"

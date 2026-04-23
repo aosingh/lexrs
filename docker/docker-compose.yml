@@ -1,0 +1,63 @@
+services:
+
+  consul:
+    image: hashicorp/consul:1.18
+    command: agent -dev -client=0.0.0.0
+    ports:
+      - "8500:8500"
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  writer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.writer
+    environment:
+      WRITER_HOST:       "0.0.0.0"
+      WRITER_PORT:       "3000"
+      SNAPSHOT_DIR:      "/snapshots"
+      CONSUL_ADDR:       "http://consul:8500"
+      COMPACT_INTERVAL:  "60"
+      HOSTNAME:          "writer"
+    ports:
+      - "3000:3000"
+    volumes:
+      - snapshots:/snapshots
+    depends_on:
+      consul:
+        condition: service_healthy
+
+  reader:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.reader
+    environment:
+      READER_HOST:  "0.0.0.0"
+      READER_PORT:  "3001"
+      SNAPSHOT_DIR: "/snapshots"
+      CONSUL_ADDR:  "http://consul:8500"
+    volumes:
+      - snapshots:/snapshots
+    depends_on:
+      consul:
+        condition: service_healthy
+      writer:
+        condition: service_started
+    deploy:
+      replicas: 2
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - writer
+      - reader
+
+volumes:
+  snapshots:

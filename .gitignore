@@ -1,0 +1,21 @@
+# Rust
+target/
+Cargo.lock
+
+# Python build artifacts
+dist/
+*.egg-info/
+*.so
+*.pyd
+__pycache__/
+*.pyc
+*.pyo
+
+# Test / tool caches
+.pytest_cache/
+.venv/
+
+# IDE / OS
+.claude/
+.DS_Store
+

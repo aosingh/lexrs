@@ -1,0 +1,21 @@
+[package]
+name        = "lexrs"
+version     = "0.1.0"
+edition     = "2024"
+description = "Efficient lexicon data structures: Trie and DAWG"
+license     = "MIT"
+
+[lib]
+name        = "lexrs"
+crate-type  = ["cdylib", "rlib"]
+
+[[bin]]
+name = "genome_bench"
+path = "src/bin/genome_bench.rs"
+
+[dependencies]
+thiserror = "1"
+pyo3      = { version = "0.23", optional = true }
+
+[features]
+python = ["dep:pyo3", "pyo3/extension-module"]
