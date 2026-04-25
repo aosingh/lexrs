@@ -56,11 +56,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install maturin and pytest
-        run: pip install maturin pytest
+      - name: Install pytest
+        run: pip install pytest
 
       - name: Build and install lexrs Python extension
-        run: maturin develop --features python
+        run: pip install .
 
       - name: Run Python tests
         run: pytest tests/ -v
