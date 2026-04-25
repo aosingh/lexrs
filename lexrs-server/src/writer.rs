@@ -39,10 +39,10 @@ mod snapshot;
 // ── state ─────────────────────────────────────────────────────────────────────
 
 struct WriterState {
-    trie:         RwLock<Trie>,
+    trie: RwLock<Trie>,
     snapshot_dir: String,
-    consul_addr:  String,
-    version:      std::sync::atomic::AtomicU64,
+    consul_addr: String,
+    version: std::sync::atomic::AtomicU64,
 }
 
 type Shared = Arc<WriterState>;
@@ -50,13 +50,22 @@ type Shared = Arc<WriterState>;
 // ── request types ─────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
+#[serde(untagged)]
+enum WordEntry {
+    Simple(String),
+    WithCount { word: String, count: usize },
+}
+
+#[derive(Deserialize)]
 struct IngestBody {
-    words: Vec<String>,
+    words: Vec<WordEntry>,
     #[serde(default = "default_count")]
     count: usize,
 }
 
-fn default_count() -> usize { 1 }
+fn default_count() -> usize {
+    1
+}
 
 #[derive(Serialize)]
 struct StatsResponse {
@@ -72,8 +81,12 @@ async fn ingest(
 ) -> (StatusCode, Json<serde_json::Value>) {
     let mut trie = state.trie.write().unwrap();
     let mut inserted = 0usize;
-    for word in &body.words {
-        if let Err(e) = trie.add(word, body.count) {
+    for entry in &body.words {
+        let (word, count) = match entry {
+            WordEntry::Simple(w) => (w.as_str(), body.count),
+            WordEntry::WithCount { word, count } => (word.as_str(), *count),
+        };
+        if let Err(e) = trie.add(word, count) {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": e.to_string(), "inserted": inserted })),
@@ -86,8 +99,14 @@ async fn ingest(
 
 async fn compact_handler(State(state): State<Shared>) -> (StatusCode, Json<serde_json::Value>) {
     match run_compact(&state).await {
-        Ok(version) => (StatusCode::OK, Json(json!({ "status": "ok", "version": version }))),
-        Err(e)      => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))),
+        Ok(version) => (
+            StatusCode::OK,
+            Json(json!({ "status": "ok", "version": version })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        ),
     }
 }
 
@@ -98,7 +117,7 @@ async fn get_snapshot(
     let path = format!("{}/snapshot_{}.txt", state.snapshot_dir, version);
     match tokio::fs::read(&path).await {
         Ok(bytes) => (StatusCode::OK, bytes).into_response(),
-        Err(_)    => (StatusCode::NOT_FOUND, "snapshot not found").into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "snapshot not found").into_response(),
     }
 }
 
@@ -126,7 +145,10 @@ async fn run_compact(state: &WriterState) -> Result<u64, String> {
     }
 
     // 2. Write snapshot to shared volume
-    let version = state.version.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let version = state
+        .version
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        + 1;
     snapshot::write(&state.snapshot_dir, version, &words)
         .await
         .map_err(|e| e.to_string())?;
@@ -140,7 +162,10 @@ async fn run_compact(state: &WriterState) -> Result<u64, String> {
     // 4. Clear Trie
     *state.trie.write().unwrap() = Trie::new();
 
-    println!("[compact] version {version} written ({} words)", words.len());
+    println!(
+        "[compact] version {version} written ({} words)",
+        words.len()
+    );
     Ok(version)
 }
 
@@ -173,46 +198,86 @@ fn env_or(key: &str, default: &str) -> String {
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let host         = flag(&args, "--host").unwrap_or_else(|| env_or("WRITER_HOST", "0.0.0.0"));
-    let port         = flag(&args, "--port").unwrap_or_else(|| env_or("WRITER_PORT", "3000"));
-    let snapshot_dir = flag(&args, "--snapshot-dir").unwrap_or_else(|| env_or("SNAPSHOT_DIR", "/snapshots"));
-    let consul_addr  = flag(&args, "--consul").unwrap_or_else(|| env_or("CONSUL_ADDR", "http://consul:8500"));
+    let host = flag(&args, "--host").unwrap_or_else(|| env_or("WRITER_HOST", "0.0.0.0"));
+    let port = flag(&args, "--port").unwrap_or_else(|| env_or("WRITER_PORT", "3000"));
+    let snapshot_dir =
+        flag(&args, "--snapshot-dir").unwrap_or_else(|| env_or("SNAPSHOT_DIR", "/snapshots"));
+    let consul_addr =
+        flag(&args, "--consul").unwrap_or_else(|| env_or("CONSUL_ADDR", "http://consul:8500"));
     let interval_s: u64 = flag(&args, "--compact-interval")
         .unwrap_or_else(|| env_or("COMPACT_INTERVAL", "60"))
-        .parse().unwrap_or(60);
+        .parse()
+        .unwrap_or(60);
+
+    // Recover Trie and version from the latest snapshot on startup
+    let (initial_trie, start_version) = match consul::latest_snapshot(&consul_addr).await {
+        Ok(Some((version, path))) => {
+            println!("[startup] loading snapshot v{version} from {path}");
+            match snapshot::load_into_trie(&path).await {
+                Ok(trie) => {
+                    println!(
+                        "[startup] recovered {} words from snapshot v{version}",
+                        trie.word_count()
+                    );
+                    (trie, version)
+                }
+                Err(e) => {
+                    eprintln!("[startup] failed to load snapshot: {e}, starting empty");
+                    (Trie::new(), 0)
+                }
+            }
+        }
+        _ => {
+            println!("[startup] no snapshot found, starting with empty Trie");
+            (Trie::new(), 0)
+        }
+    };
 
     // Register with Consul
     let instance_id = format!("lexrs-writer-{}", uuid::Uuid::new_v4());
-    let health_url  = format!("http://{}:{}/health", hostname(), port);
-    if let Err(e) = consul::register(&consul_addr, &instance_id, "lexrs-writer", &health_url, port.parse().unwrap_or(3000)).await {
+    let health_url = format!("http://{}:{}/health", hostname(), port);
+    if let Err(e) = consul::register(
+        &consul_addr,
+        &instance_id,
+        "lexrs-writer",
+        &health_url,
+        port.parse().unwrap_or(3000),
+    )
+    .await
+    {
         eprintln!("Consul registration failed: {e}");
     }
 
     let state: Shared = Arc::new(WriterState {
-        trie:         RwLock::new(Trie::new()),
+        trie: RwLock::new(initial_trie),
         snapshot_dir: snapshot_dir.clone(),
-        consul_addr:  consul_addr.clone(),
-        version:      std::sync::atomic::AtomicU64::new(0),
+        consul_addr: consul_addr.clone(),
+        version: std::sync::atomic::AtomicU64::new(start_version),
     });
 
     // Spawn background compaction
-    tokio::spawn(compact_task(Arc::clone(&state), Duration::from_secs(interval_s)));
+    tokio::spawn(compact_task(
+        Arc::clone(&state),
+        Duration::from_secs(interval_s),
+    ));
 
     let app = Router::new()
-        .route("/words",             post(ingest))
-        .route("/compact",           post(compact_handler))
-        .route("/snapshot/:version", get(get_snapshot))
-        .route("/health",            get(health))
-        .route("/stats",             get(stats))
+        .route("/words", post(ingest))
+        .route("/compact", post(compact_handler))
+        .route("/snapshot/{version}", get(get_snapshot))
+        .route("/health", get(health))
+        .route("/stats", get(stats))
         .with_state(state);
 
     let addr = format!("{host}:{port}");
     println!("lexrs-writer listening on http://{addr}");
 
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap_or_else(|e| {
-        eprintln!("Failed to bind {addr}: {e}");
-        std::process::exit(1);
-    });
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to bind {addr}: {e}");
+            std::process::exit(1);
+        });
     axum::serve(listener, app).await.unwrap();
 }
 

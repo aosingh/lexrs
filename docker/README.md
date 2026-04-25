@@ -2,13 +2,69 @@
 
 Docker Compose setup for running the full lexrs stack locally or in production.
 
+## Architecture
+
+```
+                        ┌─────────────────────────────────────────────┐
+                        │              Docker Network                  │
+                        │                                              │
+  ┌──────────┐          │  ┌─────────────────────────────────────┐    │
+  │  Client  │          │  │         nginx:alpine                │    │
+  │          │──────────┼─▶│         localhost:80                │    │
+  └──────────┘  :80     │  └──────────────┬──────────────────────┘    │
+                        │                 │                            │
+                        │    ┌────────────┴────────────┐              │
+                        │    │                         │              │
+                        │    ▼  /words /compact        ▼  /search     │
+                        │    │  /snapshot              │  /prefix     │
+                        │    │                         │  /contains   │
+                        │  ┌─┴────────────┐    ┌───────┴──────────┐   │
+                        │  │    writer    │    │  reader (×2)     │   │
+                        │  │  :3000       │    │  :3001           │   │
+                        │  │  (internal)  │    │  (internal)      │   │
+                        │  └──────┬───────┘    └───────┬──────────┘   │
+                        │         │                    │              │
+                        │         │ register+KV put    │ KV watch     │
+                        │         │                    │              │
+                        │         ▼                    ▼              │
+                        │  ┌──────────────────────────────────────┐   │
+                        │  │       consul (hashicorp/consul:1.18) │   │
+                        │  │       :8500 (UI + API)               │   │
+                        │  └──────────────────────────────────────┘   │
+                        │                                              │
+                        │         │  snapshot files    │              │
+                        │         ▼                    ▼              │
+                        │  ┌──────────────────────────────────────┐   │
+                        │  │       Docker Volume: snapshots       │   │
+                        │  │       mounted at /snapshots          │   │
+                        │  └──────────────────────────────────────┘   │
+                        └─────────────────────────────────────────────┘
+
+  Exposed to host:
+    :80    → nginx  (all traffic)
+    :3000  → writer (debug only)
+    :8500  → consul (UI + API)
+```
+
+## Request flow
+
+| Operation | Entry | Routed to | Internal port |
+|---|---|---|---|
+| Ingest words | `POST localhost/words` | writer | 3000 |
+| Force compact | `POST localhost/compact` | writer | 3000 |
+| Wildcard search | `GET localhost/search?q=ap*` | reader (round-robin) | 3001 |
+| Prefix search | `GET localhost/prefix?q=app` | reader (round-robin) | 3001 |
+| Exact lookup | `GET localhost/contains?q=apple` | reader (round-robin) | 3001 |
+| Health check | `GET localhost/health` | reader | 3001 |
+| Consul UI | `http://localhost:8500` | consul | 8500 |
+
 ## Services
 
 | Service | Image / Build | Port | Description |
 |---|---|---|---|
 | `consul` | `hashicorp/consul:1.18` | 8500 | Service discovery and KV store |
-| `writer` | `Dockerfile.writer` | 3000 | Word ingestion and compaction |
-| `reader` | `Dockerfile.reader` | 3001 (internal) | Search server (2 replicas by default) |
+| `writer` | `Dockerfile` | 3000 | Word ingestion and compaction |
+| `reader` | `Dockerfile` | 3001 (internal) | Search server (2 replicas by default) |
 | `nginx` | `nginx:alpine` | 80 | Reverse proxy — routes reads/writes to the right service |
 
 ## Startup order
@@ -73,12 +129,6 @@ Once running, the Consul UI is available at [http://localhost:8500](http://local
 | `SNAPSHOT_DIR` | `/snapshots` | Shared volume mount |
 | `CONSUL_ADDR` | `http://consul:8500` | Consul HTTP API |
 
-## Dockerfiles
+## Dockerfile
 
-### `Dockerfile.writer`
-
-Multi-stage build: compiles the `writer` binary with `cargo build --release`, then copies it into a minimal `debian:bookworm-slim` image. No Rust toolchain in the final image.
-
-### `Dockerfile.reader`
-
-Same pattern as the writer but builds and ships the `reader` binary.
+A single multi-stage `Dockerfile` builds both `writer` and `reader` binaries in one `cargo build` call, then copies both into a minimal `debian:bookworm-slim` image. Docker Compose selects which binary to run via the `command` field for each service. No Rust toolchain in the final image.

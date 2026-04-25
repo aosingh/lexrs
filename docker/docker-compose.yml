@@ -14,7 +14,8 @@ services:
   writer:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.writer
+      dockerfile: docker/Dockerfile
+    command: writer
     environment:
       WRITER_HOST:       "0.0.0.0"
       WRITER_PORT:       "3000"
@@ -29,11 +30,17 @@ services:
     depends_on:
       consul:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   reader:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.reader
+      dockerfile: docker/Dockerfile
+    command: reader
     environment:
       READER_HOST:  "0.0.0.0"
       READER_PORT:  "3001"
@@ -45,7 +52,12 @@ services:
       consul:
         condition: service_healthy
       writer:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     deploy:
       replicas: 2
 
@@ -56,8 +68,10 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - writer
-      - reader
+      writer:
+        condition: service_healthy
+      reader:
+        condition: service_healthy
 
 volumes:
   snapshots:

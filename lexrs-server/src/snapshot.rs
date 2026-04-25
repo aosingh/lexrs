@@ -1,6 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 
-use lexrs::Dawg;
+use lexrs::{Dawg, Trie};
 
 /// Write a sorted (word, count) list to /snapshots/snapshot_<version>.txt atomically.
 /// Uses a .tmp file + rename to avoid readers seeing a partial write.
@@ -11,7 +11,7 @@ pub async fn write(
 ) -> std::io::Result<()> {
     tokio::fs::create_dir_all(snapshot_dir).await?;
 
-    let tmp_path  = format!("{snapshot_dir}/snapshot_{version}.tmp");
+    let tmp_path = format!("{snapshot_dir}/snapshot_{version}.tmp");
     let final_path = format!("{snapshot_dir}/snapshot_{version}.txt");
 
     // Write to temp file
@@ -47,6 +47,26 @@ pub async fn load(path: &str) -> Result<Dawg, String> {
     dawg.reduce();
 
     Ok(dawg)
+}
+
+/// Load a snapshot file into a new Trie (used by writer on startup to recover state).
+#[allow(dead_code)]
+pub async fn load_into_trie(path: &str) -> Result<Trie, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let reader = BufReader::new(file);
+
+    let mut trie = Trie::new();
+    for line in reader.lines() {
+        let line = line.map_err(|e| e.to_string())?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (word, count) = parse_line(line)?;
+        trie.add(&word, count).map_err(|e| e.to_string())?;
+    }
+
+    Ok(trie)
 }
 
 fn parse_line(line: &str) -> Result<(String, usize), String> {

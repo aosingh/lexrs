@@ -38,9 +38,9 @@ mod snapshot;
 // ── state ─────────────────────────────────────────────────────────────────────
 
 struct ReaderState {
-    dawg:         ArcSwap<Dawg>,
+    dawg: ArcSwap<Dawg>,
     snapshot_dir: String,
-    consul_addr:  String,
+    consul_addr: String,
 }
 
 type Shared = Arc<ReaderState>;
@@ -49,15 +49,15 @@ type Shared = Arc<ReaderState>;
 
 #[derive(Deserialize)]
 struct SearchQuery {
-    q:          String,
+    q: String,
     #[serde(default)]
     with_count: bool,
-    dist:       Option<usize>,
+    dist: Option<usize>,
 }
 
 #[derive(Deserialize)]
 struct PrefixQuery {
-    q:          String,
+    q: String,
     #[serde(default)]
     with_count: bool,
 }
@@ -69,7 +69,7 @@ struct ContainsQuery {
 
 #[derive(Serialize)]
 struct WordCount {
-    word:  String,
+    word: String,
     count: usize,
 }
 
@@ -90,12 +90,20 @@ async fn search(
                 .collect();
             return (StatusCode::OK, Json(json!(results)));
         }
-        return (StatusCode::OK, Json(json!(dawg.search_within_distance(&params.q, dist))));
+        return (
+            StatusCode::OK,
+            Json(json!(dawg.search_within_distance(&params.q, dist))),
+        );
     }
 
     let pairs = match dawg.search_with_count(&params.q) {
-        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": e.to_string() }))),
-        Ok(p)  => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": e.to_string() })),
+            );
+        }
+        Ok(p) => p,
     };
 
     if params.with_count {
@@ -123,7 +131,10 @@ async fn prefix_search(
             .collect();
         (StatusCode::OK, Json(json!(results)))
     } else {
-        (StatusCode::OK, Json(json!(dawg.search_with_prefix(&params.q))))
+        (
+            StatusCode::OK,
+            Json(json!(dawg.search_with_prefix(&params.q))),
+        )
     }
 }
 
@@ -132,7 +143,10 @@ async fn contains(
     Query(params): Query<ContainsQuery>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     let dawg = state.dawg.load();
-    (StatusCode::OK, Json(json!({ "found": dawg.contains(&params.q) })))
+    (
+        StatusCode::OK,
+        Json(json!({ "found": dawg.contains(&params.q) })),
+    )
 }
 
 async fn health() -> (StatusCode, Json<serde_json::Value>) {
@@ -147,7 +161,7 @@ async fn stats(State(state): State<Shared>) -> Json<serde_json::Value> {
 // ── consul watch + reload ─────────────────────────────────────────────────────
 
 async fn watch_and_reload(state: Shared) {
-    let client  = reqwest::Client::new();
+    let client = reqwest::Client::new();
     let mut index = 0u64;
 
     loop {
@@ -157,11 +171,15 @@ async fn watch_and_reload(state: Shared) {
         );
 
         let res = match client.get(&url).send().await {
-            Ok(r)  => r,
-            Err(e) => { eprintln!("[watch] consul error: {e}"); continue; }
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[watch] consul error: {e}");
+                continue;
+            }
         };
 
-        let new_index: u64 = res.headers()
+        let new_index: u64 = res
+            .headers()
             .get("X-Consul-Index")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse().ok())
@@ -175,27 +193,36 @@ async fn watch_and_reload(state: Shared) {
         index = new_index;
 
         let body: serde_json::Value = match res.json().await {
-            Ok(b)  => b,
-            Err(e) => { eprintln!("[watch] parse error: {e}"); continue; }
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("[watch] parse error: {e}");
+                continue;
+            }
         };
 
         // Consul returns base64-encoded value
         let encoded = match body[0]["Value"].as_str() {
             Some(v) => v,
-            None    => continue,
+            None => continue,
         };
         let decoded = match base64_decode(encoded) {
-            Ok(v)  => v,
-            Err(e) => { eprintln!("[watch] base64 error: {e}"); continue; }
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[watch] base64 error: {e}");
+                continue;
+            }
         };
         let meta: serde_json::Value = match serde_json::from_str(&decoded) {
-            Ok(v)  => v,
-            Err(e) => { eprintln!("[watch] json error: {e}"); continue; }
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[watch] json error: {e}");
+                continue;
+            }
         };
 
         let path = match meta["path"].as_str() {
             Some(p) => p.to_string(),
-            None    => continue,
+            None => continue,
         };
         let version = meta["version"].as_u64().unwrap_or(0);
 
@@ -225,17 +252,26 @@ fn base64_decode(s: &str) -> Result<String, String> {
 
 fn decode_chunk(chunk: &str) -> Vec<u8> {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let idx: Vec<u8> = chunk.bytes()
-        .map(|c| if c == b'=' { 0 } else { TABLE.iter().position(|&t| t == c).unwrap_or(0) as u8 })
+    let idx: Vec<u8> = chunk
+        .bytes()
+        .map(|c| {
+            if c == b'=' {
+                0
+            } else {
+                TABLE.iter().position(|&t| t == c).unwrap_or(0) as u8
+            }
+        })
         .collect();
-    if idx.len() < 4 { return vec![]; }
+    if idx.len() < 4 {
+        return vec![];
+    }
     let b0 = (idx[0] << 2) | (idx[1] >> 4);
     let b1 = (idx[1] << 4) | (idx[2] >> 2);
     let b2 = (idx[2] << 6) | idx[3];
     match chunk.contains('=') {
         true if chunk.ends_with("==") => vec![b0],
-        true                          => vec![b0, b1],
-        false                         => vec![b0, b1, b2],
+        true => vec![b0, b1],
+        false => vec![b0, b1, b2],
     }
 }
 
@@ -253,10 +289,12 @@ fn env_or(key: &str, default: &str) -> String {
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let host         = flag(&args, "--host").unwrap_or_else(|| env_or("READER_HOST", "0.0.0.0"));
-    let port         = flag(&args, "--port").unwrap_or_else(|| env_or("READER_PORT", "3001"));
-    let snapshot_dir = flag(&args, "--snapshot-dir").unwrap_or_else(|| env_or("SNAPSHOT_DIR", "/snapshots"));
-    let consul_addr  = flag(&args, "--consul").unwrap_or_else(|| env_or("CONSUL_ADDR", "http://consul:8500"));
+    let host = flag(&args, "--host").unwrap_or_else(|| env_or("READER_HOST", "0.0.0.0"));
+    let port = flag(&args, "--port").unwrap_or_else(|| env_or("READER_PORT", "3001"));
+    let snapshot_dir =
+        flag(&args, "--snapshot-dir").unwrap_or_else(|| env_or("SNAPSHOT_DIR", "/snapshots"));
+    let consul_addr =
+        flag(&args, "--consul").unwrap_or_else(|| env_or("CONSUL_ADDR", "http://consul:8500"));
 
     // Load latest snapshot from shared volume on startup
     let initial_dawg = match consul::latest_snapshot_path(&consul_addr).await {
@@ -275,13 +313,21 @@ async fn main() {
 
     // Register with Consul
     let instance_id = format!("lexrs-reader-{}", uuid::Uuid::new_v4());
-    let health_url  = format!("http://{}:{}/health", hostname(), port);
-    if let Err(e) = consul::register(&consul_addr, &instance_id, "lexrs-reader", &health_url, port.parse().unwrap_or(3001)).await {
+    let health_url = format!("http://{}:{}/health", hostname(), port);
+    if let Err(e) = consul::register(
+        &consul_addr,
+        &instance_id,
+        "lexrs-reader",
+        &health_url,
+        port.parse().unwrap_or(3001),
+    )
+    .await
+    {
         eprintln!("Consul registration failed: {e}");
     }
 
     let state: Shared = Arc::new(ReaderState {
-        dawg:         ArcSwap::new(Arc::new(initial_dawg)),
+        dawg: ArcSwap::new(Arc::new(initial_dawg)),
         snapshot_dir,
         consul_addr,
     });
@@ -290,20 +336,22 @@ async fn main() {
     tokio::spawn(watch_and_reload(Arc::clone(&state)));
 
     let app = Router::new()
-        .route("/search",   get(search))
-        .route("/prefix",   get(prefix_search))
+        .route("/search", get(search))
+        .route("/prefix", get(prefix_search))
         .route("/contains", get(contains))
-        .route("/health",   get(health))
-        .route("/stats",    get(stats))
+        .route("/health", get(health))
+        .route("/stats", get(stats))
         .with_state(state);
 
     let addr = format!("{host}:{port}");
     println!("lexrs-reader listening on http://{addr}");
 
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap_or_else(|e| {
-        eprintln!("Failed to bind {addr}: {e}");
-        std::process::exit(1);
-    });
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to bind {addr}: {e}");
+            std::process::exit(1);
+        });
     axum::serve(listener, app).await.unwrap();
 }
 
