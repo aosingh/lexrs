@@ -63,7 +63,7 @@ Docker Compose setup for running the full lexrs stack locally or in production.
 | Service | Image / Build | Port | Description |
 |---|---|---|---|
 | `consul` | `hashicorp/consul:1.18` | 8500 | Service discovery and KV store |
-| `writer` | `Dockerfile` | 3000 | Word ingestion and compaction |
+| `writer` | `Dockerfile` | 3000 | Word ingestion; compaction merges delta Trie with previous snapshot |
 | `reader` | `Dockerfile` | 3001 (internal) | Search server (2 replicas by default) |
 | `nginx` | `nginx:alpine` | 80 | Reverse proxy — routes reads/writes to the right service |
 
@@ -73,7 +73,7 @@ Docker Compose setup for running the full lexrs stack locally or in production.
 consul (healthy) → writer → reader × 2 → nginx
 ```
 
-Consul must pass its health check (`consul members`) before writer or reader start. Writer must be started before readers because readers attempt to pull the latest snapshot on boot.
+Consul must pass its health check (`consul members`) before writer or reader start. Writer must be started before readers because readers attempt to pull the latest snapshot on boot. The writer starts with an empty Trie and recovers only its version counter from Consul — no snapshot loading on startup.
 
 ## Nginx routing
 

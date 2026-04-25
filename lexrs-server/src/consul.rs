@@ -52,7 +52,6 @@ pub async fn put_snapshot(consul_addr: &str, version: u64, path: &str) -> Result
 }
 
 /// Read the latest snapshot version and path from Consul KV (used by writer on startup).
-#[allow(dead_code)]
 pub async fn latest_snapshot(consul_addr: &str) -> Result<Option<(u64, String)>, String> {
     let client = reqwest::Client::new();
 

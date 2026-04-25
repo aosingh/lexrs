@@ -133,40 +133,46 @@ async fn stats(State(state): State<Shared>) -> Json<serde_json::Value> {
 // ── compaction ────────────────────────────────────────────────────────────────
 
 async fn run_compact(state: &WriterState) -> Result<u64, String> {
-    // 1. Snapshot Trie words under a brief read lock
-    let words: Vec<(String, usize)> = {
+    // 1. Drain new words from Trie under a brief read lock
+    let new_words: Vec<(String, usize)> = {
         let trie = state.trie.read().unwrap();
         trie.search_with_count("*").unwrap_or_default()
     };
 
-    if words.is_empty() {
-        let v = state.version.load(std::sync::atomic::Ordering::SeqCst);
-        return Ok(v);
+    if new_words.is_empty() {
+        return Ok(state.version.load(std::sync::atomic::Ordering::SeqCst));
     }
 
-    // 2. Write snapshot to shared volume
-    let version = state
-        .version
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        + 1;
-    snapshot::write(&state.snapshot_dir, version, &words)
-        .await
-        .map_err(|e| e.to_string())?;
+    // 2. Merge with existing snapshot (streaming — O(1) memory)
+    let next_version = state.version.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let current_version = next_version - 1;
+
+    let existing_path = if current_version > 0 {
+        Some(format!("{}/snapshot_{}.txt", state.snapshot_dir, current_version))
+    } else {
+        None
+    };
+
+    snapshot::merge_and_write(
+        &state.snapshot_dir,
+        next_version,
+        existing_path.as_deref(),
+        &new_words,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     // 3. Announce to readers via Consul KV
-    let path = format!("{}/snapshot_{}.txt", state.snapshot_dir, version);
-    consul::put_snapshot(&state.consul_addr, version, &path)
+    let path = format!("{}/snapshot_{}.txt", state.snapshot_dir, next_version);
+    consul::put_snapshot(&state.consul_addr, next_version, &path)
         .await
         .map_err(|e| e.to_string())?;
 
-    // 4. Clear Trie
+    // 4. Clear Trie — it only holds the delta since last compact
     *state.trie.write().unwrap() = Trie::new();
 
-    println!(
-        "[compact] version {version} written ({} words)",
-        words.len()
-    );
-    Ok(version)
+    println!("[compact] v{next_version}: merged {} new words", new_words.len());
+    Ok(next_version)
 }
 
 async fn compact_task(state: Shared, interval: Duration) {
@@ -209,27 +215,15 @@ async fn main() {
         .parse()
         .unwrap_or(60);
 
-    // Recover Trie and version from the latest snapshot on startup
-    let (initial_trie, start_version) = match consul::latest_snapshot(&consul_addr).await {
-        Ok(Some((version, path))) => {
-            println!("[startup] loading snapshot v{version} from {path}");
-            match snapshot::load_into_trie(&path).await {
-                Ok(trie) => {
-                    println!(
-                        "[startup] recovered {} words from snapshot v{version}",
-                        trie.word_count()
-                    );
-                    (trie, version)
-                }
-                Err(e) => {
-                    eprintln!("[startup] failed to load snapshot: {e}, starting empty");
-                    (Trie::new(), 0)
-                }
-            }
+    // Recover version counter from Consul — Trie starts empty (holds delta only)
+    let start_version = match consul::latest_snapshot(&consul_addr).await {
+        Ok(Some((version, _))) => {
+            println!("[startup] resuming from snapshot v{version}, Trie empty");
+            version
         }
         _ => {
-            println!("[startup] no snapshot found, starting with empty Trie");
-            (Trie::new(), 0)
+            println!("[startup] no snapshot found, starting fresh");
+            0
         }
     };
 
@@ -249,7 +243,7 @@ async fn main() {
     }
 
     let state: Shared = Arc::new(WriterState {
-        trie: RwLock::new(initial_trie),
+        trie: RwLock::new(Trie::new()),
         snapshot_dir: snapshot_dir.clone(),
         consul_addr: consul_addr.clone(),
         version: std::sync::atomic::AtomicU64::new(start_version),
