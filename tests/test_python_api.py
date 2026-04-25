@@ -124,7 +124,7 @@ def test_trie_search_with_prefix_with_count():
     t = Trie()
     t.add("ash", 3)
     t.add("ashley", 1)
-    results = {w: c for w, c in t.search_with_prefix_count("ash")}
+    results = {w: c for w, c in t.search_with_prefix("ash", with_count=True)}
     assert results["ash"] == 3
     assert results["ashley"] == 1
 
