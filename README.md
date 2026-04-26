@@ -168,6 +168,7 @@ tests/
 |---|---|
 | [lexrs-server/](lexrs-server/) | Production HTTP server — a **writer** binary for word ingestion and compaction, and a **reader** binary for search. Readers scale horizontally and hot-reload snapshots via Consul. |
 | [docker/](docker/) | Docker Compose setup running the full stack: Consul, writer, two reader replicas, and an nginx reverse proxy that routes reads and writes to the right service. |
+| [lexpy-shim/](lexpy-shim/) | Source for `lexpy==2.x` — a one-file compatibility shim that re-exports `lexrs` so existing `lexpy` users can upgrade without changing their imports. |
 | [benchmarks/](benchmarks/) | Python scripts comparing `lexrs` against `lexpy` (pure Python) across insertion, prefix, wildcard, and Levenshtein workloads. |
 | [tests/](tests/) | Integration tests — `pytest` suite for the Python API and Rust-level integration tests. |
 
