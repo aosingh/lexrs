@@ -66,7 +66,7 @@ jobs:
         run: pytest tests/ -v
 
       - name: Install lexpy shim
-        run: pip install ./lexpy-shim
+        run: pip install --no-deps ./lexpy-shim
 
       - name: Run lexpy shim tests
         run: pytest lexpy-shim/tests/ -v

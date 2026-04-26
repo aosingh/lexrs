@@ -9,7 +9,7 @@ description = "Compatibility shim — lexpy is now powered by lexrs (Rust-backed
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.8"
-dependencies = ["lexrs>=1.0"]
+dependencies = ["lexrs>=0.1"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
