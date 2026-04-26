@@ -6,6 +6,7 @@ A Rust library implementing two efficient lexicon data structures — **Trie** a
 
 ## Table of contents
 
+- [Production HTTP server](#production-http-server)
 - [Data structures](#data-structures)
 - [Features](#features)
 - [Rust usage](#rust-usage)
@@ -17,6 +18,60 @@ A Rust library implementing two efficient lexicon data structures — **Trie** a
 - [Project structure](#project-structure)
 - [Related components](#related-components)
 - [License](#license)
+
+## Production HTTP server
+
+`lexrs` ships a production-ready HTTP service in [`lexrs-server/`](lexrs-server/) with two binaries:
+
+| Binary | Role |
+|---|---|
+| **writer** | Accepts word ingestion (`POST /ingest`), buffers a delta Trie in memory, and periodically compacts it into a versioned snapshot on disk. |
+| **reader** | Loads the latest snapshot into a DAWG and serves all search queries. Multiple readers can run as replicas and hot-reload new snapshots without downtime. |
+
+[Consul](https://www.consul.io/) is used for snapshot version coordination — the writer publishes new snapshot versions to the Consul KV store and readers watch for changes via blocking queries, atomically swapping the in-memory DAWG when a new snapshot arrives.
+
+### Docker Compose — full stack in one command
+
+The [`docker/`](docker/) directory has a Compose file that brings up the entire stack:
+
+```
+Consul ──► writer ──► (snapshots on shared volume)
+                              │
+              ┌───────────────┘
+              ▼
+         reader-1   reader-2
+              │         │
+              └────┬────┘
+                   ▼
+                 nginx  (port 80)
+                 /ingest  → writer
+                 /search  → readers (round-robin)
+```
+
+```bash
+cd docker
+docker compose up -d
+```
+
+```bash
+# ingest words
+curl -s -X POST http://localhost/ingest \
+  -H 'Content-Type: application/json' \
+  -d '["apple", "apply", {"word": "application", "count": 5}]'
+
+# prefix search
+curl -s 'http://localhost/search?prefix=app'
+
+# wildcard search
+curl -s 'http://localhost/search?pattern=app*'
+
+# fuzzy search (Levenshtein distance ≤ 1)
+curl -s 'http://localhost/search?word=aple&dist=1'
+```
+
+The writer and reader are built from a single Dockerfile — the `command:` field in Compose selects which binary to start. See [`lexrs-server/README.md`](lexrs-server/README.md) for the full API reference and configuration options.
+
+---
 
 ## Data structures
 

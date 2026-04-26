@@ -29,16 +29,14 @@ pub async fn merge_and_write(
             })
             .peekable();
 
-        let mut new_iter = new_words.iter()
-            .map(|(w, c)| (w.clone(), *c))
-            .peekable();
+        let mut new_iter = new_words.iter().peekable();
 
         loop {
             let ord = match (file_iter.peek(), new_iter.peek()) {
                 (None, None)             => break,
                 (Some(_), None)          => std::cmp::Ordering::Less,
                 (None, Some(_))          => std::cmp::Ordering::Greater,
-                (Some((fw, _)), Some((nw, _))) => fw.cmp(nw),
+                (Some((fw, _)), Some((nw, _))) => fw.as_str().cmp(nw.as_str()),
             };
             match ord {
                 std::cmp::Ordering::Less => {
@@ -52,7 +50,7 @@ pub async fn merge_and_write(
                 std::cmp::Ordering::Equal => {
                     let (w, fc) = file_iter.next().unwrap();
                     let (_, nc) = new_iter.next().unwrap();
-                    writeln!(out, "{w} {}", fc + nc)?;
+                    writeln!(out, "{w} {}", fc + *nc)?;
                 }
             }
         }
