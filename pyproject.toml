@@ -6,10 +6,22 @@ build-backend = "maturin"
 name = "lexrs"
 version = "0.1.0"
 description = "Efficient lexicon data structures: Trie and DAWG"
-requires-python = ">=3.8"
+authors = [
+    { name = "Abhishek Singh", email = "abhishek.singh20141@gmail.com" },
+]
+maintainers = [
+    { name = "Abhishek Singh", email = "abhishek.singh20141@gmail.com" },
+]
+readme = "README.pypi.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Text Processing :: Indexing",
 ]
 
