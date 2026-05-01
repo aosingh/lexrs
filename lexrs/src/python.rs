@@ -89,19 +89,19 @@ impl PyTrie {
     /// ``?`` matches exactly one character; ``*`` matches zero or more.
     /// If ``with_count=True``, returns ``list[(word, count)]``.
     #[pyo3(signature = (pattern, with_count=false))]
-    fn search(&self, py: Python<'_>, pattern: &str, with_count: bool) -> PyResult<PyObject> {
+    fn search(&self, py: Python<'_>, pattern: &str, with_count: bool) -> PyResult<Py<PyAny>> {
         if with_count {
             let results = self
                 .inner
                 .search_with_count(pattern)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            Ok(results.into_pyobject(py)?.into())
+            Ok(results.into_pyobject(py)?.unbind().into_any())
         } else {
             let results = self
                 .inner
                 .search(pattern)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            Ok(results.into_pyobject(py)?.into())
+            Ok(results.into_pyobject(py)?.unbind().into_any())
         }
     }
 
@@ -114,7 +114,7 @@ impl PyTrie {
         py: Python<'_>,
         prefix: &str,
         with_count: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         if with_count {
             Ok(self
                 .inner
@@ -140,7 +140,7 @@ impl PyTrie {
         word: &str,
         dist: usize,
         with_count: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         if with_count {
             Ok(self
                 .inner
@@ -255,19 +255,19 @@ impl PyDAWG {
     /// ``?`` matches exactly one character; ``*`` matches zero or more.
     /// If ``with_count=True``, returns ``list[(word, count)]``.
     #[pyo3(signature = (pattern, with_count=false))]
-    fn search(&self, py: Python<'_>, pattern: &str, with_count: bool) -> PyResult<PyObject> {
+    fn search(&self, py: Python<'_>, pattern: &str, with_count: bool) -> PyResult<Py<PyAny>> {
         if with_count {
             let results = self
                 .inner
                 .search_with_count(pattern)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            Ok(results.into_pyobject(py)?.into())
+            Ok(results.into_pyobject(py)?.unbind().into_any())
         } else {
             let results = self
                 .inner
                 .search(pattern)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            Ok(results.into_pyobject(py)?.into())
+            Ok(results.into_pyobject(py)?.unbind().into_any())
         }
     }
 
@@ -280,7 +280,7 @@ impl PyDAWG {
         py: Python<'_>,
         prefix: &str,
         with_count: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         if with_count {
             Ok(self
                 .inner
@@ -306,7 +306,7 @@ impl PyDAWG {
         word: &str,
         dist: usize,
         with_count: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         if with_count {
             Ok(self
                 .inner
