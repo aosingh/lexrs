@@ -42,17 +42,27 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
+        id: python
         with:
           python-version: ${{ matrix.python-version }}
 
-      - uses: PyO3/maturin-action@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          target: ${{ matrix.target }}
-          args: >-
-            --release
-            --features python
-            --interpreter python${{ matrix.python-version }}
+          targets: ${{ matrix.target }}-apple-darwin
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build wheel
+        run: |
+          maturin build \
+            --release \
+            --features python \
+            --target ${{ matrix.target }}-apple-darwin \
+            --interpreter ${{ steps.python.outputs.python-path }} \
             -o dist
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -69,15 +79,21 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
+        id: python
         with:
           python-version: ${{ matrix.python-version }}
 
-      - uses: PyO3/maturin-action@v1
-        with:
-          args: >-
-            --release
-            --features python
-            --interpreter python${{ matrix.python-version }}
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build wheel
+        run: |
+          maturin build `
+            --release `
+            --features python `
+            --interpreter ${{ steps.python.outputs.python-path }} `
             -o dist
 
       - uses: actions/upload-artifact@v4
