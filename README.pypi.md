@@ -7,7 +7,7 @@ Efficient lexicon data structures — **Trie** and **DAWG** (Directed Acyclic Wo
 ## Install
 
 ```bash
-pip install lexrs
+pip install pylexrs
 ```
 
 ## API

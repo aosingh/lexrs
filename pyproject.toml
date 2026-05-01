@@ -3,7 +3,7 @@ requires = ["maturin>=1,<2"]
 build-backend = "maturin"
 
 [project]
-name = "lexrs"
+name = "pylexrs"
 version = "0.1.0"
 description = "Efficient lexicon data structures: Trie and DAWG"
 authors = [
