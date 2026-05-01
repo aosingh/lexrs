@@ -23,7 +23,7 @@ jobs:
           args: >-
             --release
             --features python
-            --interpreter python3.10 python3.11 python3.12 python3.13
+            --interpreter python3.11 python3.12 python3.13 python3.14
             -o dist
 
       - uses: actions/upload-artifact@v4
@@ -37,7 +37,7 @@ jobs:
     strategy:
       matrix:
         target: [x86_64, aarch64]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
@@ -74,7 +74,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
