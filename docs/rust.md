@@ -1,8 +1,8 @@
 # Rust Library
 
-The `lexrs` crate provides two data structures — **Trie** and **DAWG** — with an identical API. Both support wildcard search, prefix completion, and Levenshtein fuzzy search.
+## Setup
 
-## Add to your project
+Add `lexrs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -11,152 +11,170 @@ lexrs = "0.2"
 
 ---
 
-## Trie
+## Building a Trie
 
-A Trie is a prefix tree that accepts insertions in any order. It is the right choice when you need to add words incrementally or in unsorted order.
-
-### Create and insert
+Start with `Trie::new()`. Words can be added in any order.
 
 ```rust
 use lexrs::Trie;
 
 let mut trie = Trie::new();
+trie.add("apple", 3).unwrap();   // word + frequency count
+trie.add("apply", 1).unwrap();
+trie.add("apt",   1).unwrap();
+trie.add("banana", 5).unwrap();
+```
 
-// Insert a single word with a frequency count
-trie.add("apple", 3).unwrap();
+If all your words have the same count, `add_all` is more concise:
 
-// Insert multiple words (count defaults to 1)
-trie.add_all(vec!["apply", "apt", "banana", "band"]).unwrap();
+```rust
+trie.add_all(vec!["apple", "apply", "apt", "banana"]).unwrap();
+```
 
-// Load from a file — one word per line
+To load a word list from disk (one word per line):
+
+```rust
 trie.add_from_file("words.txt").unwrap();
-```
-
-### Membership tests
-
-```rust
-trie.contains("apple");         // true
-trie.contains("appl");          // false — not a complete word
-trie.contains_prefix("app");    // true — some word starts with "app"
-trie.contains_prefix("xyz");    // false
-```
-
-### Wildcard search
-
-Wildcards use `*` (zero or more characters) and `?` (exactly one character). Consecutive wildcards are normalised (`**` → `*`, `?*` → `*`).
-
-```rust
-trie.search("ap*").unwrap();      // ["apple", "apply", "apt"]
-trie.search("b???").unwrap();     // ["band"]  — exactly 4 chars starting with b
-trie.search("a?*").unwrap();      // all words ≥ 2 chars starting with a
-trie.search("*").unwrap();        // every word in the trie
-```
-
-To get frequency counts alongside results:
-
-```rust
-trie.search_with_count("ap*").unwrap();
-// [("apple", 3), ("apply", 1), ("apt", 1)]
-```
-
-### Prefix completion
-
-```rust
-trie.search_with_prefix("ban");
-// ["banana", "band"]
-
-trie.search_with_prefix_count("ban");
-// [("banana", 1), ("band", 1)]
-```
-
-### Levenshtein fuzzy search
-
-Returns all words within a given edit distance from the query.
-
-```rust
-trie.search_within_distance("aple", 1);
-// ["apple"]  — one insertion away
-
-trie.search_within_distance("bannana", 2);
-// ["banana"] — two edits away
-
-trie.search_within_distance_count("aple", 1);
-// [("apple", 3)]
-```
-
-### Stats
-
-```rust
-trie.word_count();   // total frequency count across all words
-trie.node_count();   // number of nodes in the trie
 ```
 
 ---
 
-## DAWG
+## Searching
 
-A DAWG (Directed Acyclic Word Graph) is a minimised Trie that also compresses shared suffixes. For large, stable lexicons this can reduce node count dramatically. The trade-off is that **words must be inserted in lexicographic (sorted) order**, and you must call `reduce()` to finalise minimisation.
+### Exact membership
 
-### Create and insert
+```rust
+trie.contains("apple")      // true
+trie.contains("appl")       // false — "appl" is not a complete word
+trie.contains_prefix("app") // true  — at least one word starts with "app"
+```
+
+### Wildcard search
+
+The wildcard language has two symbols:
+
+- `*` matches **zero or more** characters
+- `?` matches **exactly one** character
+
+```rust
+trie.search("ap*").unwrap()
+// → ["apple", "apply", "apt"]
+
+trie.search("appl?").unwrap()
+// → ["apple", "apply"]   — "appl" + exactly one char
+
+trie.search("b???").unwrap()
+// → (nothing) — no 4-letter words starting with "b" in our example
+//   add "band" and you'd get ["band"]
+
+trie.search("*ana*").unwrap()
+// → ["banana"]
+```
+
+Consecutive wildcards normalise automatically: `**` becomes `*`, and `?*` becomes `*`.
+
+To retrieve frequency counts alongside words:
+
+```rust
+trie.search_with_count("ap*").unwrap()
+// → [("apple", 3), ("apply", 1), ("apt", 1)]
+```
+
+### Prefix completion
+
+When you know the start of a word and want all completions:
+
+```rust
+trie.search_with_prefix("app")
+// → ["apple", "apply"]
+
+trie.search_with_prefix_count("app")
+// → [("apple", 3), ("apply", 1)]
+```
+
+### Levenshtein fuzzy search
+
+Fuzzy search finds words within a given edit distance. An edit is an insertion, deletion, or substitution of a single character.
+
+```rust
+trie.search_within_distance("aple", 1)
+// → ["apple"]   — "apple" is one insertion away from "aple"
+
+trie.search_within_distance("bananaa", 1)
+// → ["banana"]  — one deletion away
+
+trie.search_within_distance("bannana", 2)
+// → ["banana"]  — two substitutions
+```
+
+With counts:
+
+```rust
+trie.search_within_distance_count("aple", 1)
+// → [("apple", 3)]
+```
+
+---
+
+## Building a DAWG
+
+A DAWG minimises the trie by merging shared suffixes. The words `nation` and `action` both end in `tion` — a DAWG stores that suffix once.
+
+The constraint is that words must be inserted in **lexicographic order**. `add_all` handles this automatically by sorting before inserting:
 
 ```rust
 use lexrs::Dawg;
 
 let mut dawg = Dawg::new();
-
-// add_all sorts automatically before inserting
 dawg.add_all(vec!["apple", "apply", "apt", "banana"]).unwrap();
-
-// If you use add() directly, words must arrive sorted
-dawg.add("cherry", 1).unwrap();
-
-// Finalise minimisation — required after using add() directly
-dawg.reduce();
+// add_all sorts the input, then inserts, then calls reduce()
 ```
 
-!!! warning "Call `reduce()` after manual insertions"
-    If you add words one by one with `add()`, the DAWG is not fully minimised until you call `reduce()`. `add_all()` calls it automatically.
-
-### Search
-
-The DAWG exposes the same search API as the Trie:
+If you need to add words one at a time, sort them yourself first and call `reduce()` when done:
 
 ```rust
-dawg.contains("apple");                          // true
-dawg.contains_prefix("app");                     // true
-dawg.search("ap*").unwrap();                     // ["apple", "apply", "apt"]
-dawg.search_with_prefix("ban");                  // ["banana"]
-dawg.search_within_distance("aple", 1);          // ["apple"]
-dawg.search_within_distance_count("aple", 1);    // [("apple", 1)]
+let mut dawg = Dawg::new();
+for word in sorted_words {
+    dawg.add(word, 1).unwrap();
+}
+dawg.reduce(); // finalise minimisation — do not skip this
 ```
 
-### When to use DAWG vs Trie
+!!! warning
+    Forgetting `reduce()` after manual insertions leaves the DAWG partially minimised. Search still works, but node count will be higher than optimal.
 
-| | Trie | DAWG |
-|---|---|---|
-| Insertion order | Any | Sorted |
-| Memory usage | Higher | Lower (shared suffixes compressed) |
-| Build time | Faster | Slightly slower (`reduce()`) |
-| Search speed | Comparable | Comparable |
-| Best for | Live ingestion, delta updates | Large static lexicons, read-heavy |
+### Searching a DAWG
+
+The API is identical to the Trie:
+
+```rust
+dawg.contains("apple");                       // true
+dawg.search("ap*").unwrap();                  // ["apple", "apply", "apt"]
+dawg.search_with_prefix("app");               // ["apple", "apply"]
+dawg.search_within_distance("aple", 1);       // ["apple"]
+dawg.search_within_distance_count("aple", 1); // [("apple", 1)]
+```
 
 ---
 
-## API reference
+## Inspecting the structure
 
-| Method | Trie | DAWG | Description |
-|---|:---:|:---:|---|
-| `add(word, count)` | ✓ | ✓ | Insert one word with a frequency count |
-| `add_all(words)` | ✓ | ✓ | Insert from any iterable; DAWG sorts first |
-| `add_from_file(path)` | ✓ | ✓ | Insert words from a file (one per line) |
-| `reduce()` | — | ✓ | Finalise DAWG minimisation |
-| `contains(word)` | ✓ | ✓ | Exact membership test |
-| `contains_prefix(prefix)` | ✓ | ✓ | True if any word starts with the prefix |
-| `search(pattern)` | ✓ | ✓ | Wildcard search, returns `Vec<String>` |
-| `search_with_count(pattern)` | ✓ | ✓ | Wildcard search with counts |
-| `search_with_prefix(prefix)` | ✓ | ✓ | All words beginning with prefix |
-| `search_with_prefix_count(prefix)` | ✓ | ✓ | Prefix completion with counts |
-| `search_within_distance(word, dist)` | ✓ | ✓ | Levenshtein fuzzy search |
-| `search_within_distance_count(word, dist)` | ✓ | ✓ | Fuzzy search with counts |
-| `word_count()` | ✓ | ✓ | Sum of all word frequencies |
-| `node_count()` | ✓ | ✓ | Number of nodes in the structure |
+```rust
+trie.word_count()   // sum of all frequency counts
+trie.node_count()   // number of nodes allocated
+```
+
+These are useful for monitoring memory use after loading a large lexicon.
+
+---
+
+## Error handling
+
+`add` and `search` return `Result`. The error type is `lexrs::LexError`. In practice the main failure case for `search` is a malformed pattern (e.g. an unmatched bracket if you extend the wildcard language).
+
+```rust
+match trie.search("ap*") {
+    Ok(words)  => println!("{words:?}"),
+    Err(e)     => eprintln!("search failed: {e}"),
+}
+```

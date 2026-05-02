@@ -1,6 +1,6 @@
 # HTTP Server
 
-`lexrs-server` ships two binaries that together form a production-ready search service. The **writer** accepts word ingestion and manages compaction; the **reader** serves search queries from a compressed DAWG, scaling horizontally.
+The `lexrs-server` crate compiles to two binaries: **writer** and **reader**. They are designed to run together as a search service, but they have no shared code path at runtime — they communicate only through files on a shared volume and a Consul KV entry.
 
 ## Install
 
@@ -8,196 +8,213 @@
 cargo install lexrs-server
 ```
 
-This installs both the `writer` and `reader` binaries.
+---
+
+## Why two binaries?
+
+Search reads and word writes have very different performance profiles.
+
+Writes need a mutable data structure (Trie) and can tolerate some latency — the caller just posted a word and moved on. Reads need an immutable, highly-compressed structure (DAWG) that can serve many concurrent queries without locking.
+
+Splitting into two processes lets you:
+
+- **Scale readers independently.** Run 1 writer and 10 readers if your query volume demands it.
+- **Isolate faults.** A crash in the writer does not affect in-flight search queries.
+- **Reload without downtime.** Readers swap their in-memory DAWG atomically when a new snapshot arrives — no restart, no dropped requests.
 
 ---
 
-## Architecture
+## How a word goes from `POST /words` to a search result
+
+Understanding this flow makes it easier to configure and operate the server.
+
+**Step 1 — Ingest.** A client posts words to the writer. The writer inserts them into an in-memory Trie. At this point the words are not yet visible to readers.
+
+**Step 2 — Compact.** Every `COMPACT_INTERVAL` seconds (or immediately via `POST /compact`), the writer:
+
+1. Reads all words out of its Trie.
+2. Opens the previous snapshot file (a sorted `word count` text file).
+3. Merges the two sorted streams line by line — like a merge sort merge step. If a word appears in both, counts are summed. Memory usage during this step is O(1); neither the snapshot nor the Trie is loaded in full.
+4. Writes the merged output to a `.tmp` file, then renames it atomically to `snapshot_N.txt`.
+5. Clears the Trie. It now holds only the delta since the last compaction.
+
+**Step 3 — Announce.** The writer stores `{"version": N, "path": "/snapshots/snapshot_N.txt"}` at the key `lexrs/snapshot` in Consul's KV store.
+
+**Step 4 — Reload.** Each reader runs a background loop that long-polls Consul on that key (`?wait=30s`). When the version changes, the reader:
+
+1. Opens the new snapshot file.
+2. Loads all words into a new DAWG.
+3. Calls `reduce()` to finalise minimisation.
+4. Atomically swaps the new DAWG into the serving path using `arc-swap`. In-flight requests against the old DAWG complete normally.
 
 ```
-            ┌───────────────────────────────┐
-  POST      │            writer             │
-  /words ──▶│  delta Trie (in-memory)       │──▶ /snapshots/snapshot_N.txt
-            └──────────────┬────────────────┘         (shared volume)
-                           │                               │
-                    Consul KV write                        │
-                    lexrs/snapshot                         │
-                           │                               │
-                           ▼                               ▼
-                    ┌─────────────┐              ┌─────────────────┐
-                    │   Consul    │──blocking ──▶│    reader × N   │
-                    └─────────────┘   query      │  DAWG in memory │──▶ GET /search
-                                                 └─────────────────┘    GET /prefix
-                                                                         GET /contains
+  client                writer                consul            reader(s)
+    │                     │                     │                  │
+    │  POST /words         │                     │                  │
+    │────────────────────▶│                     │                  │
+    │  {"inserted": N}     │                     │                  │
+    │◀────────────────────│                     │                  │
+    │                     │                     │                  │
+    │  (60s passes)        │                     │                  │
+    │                     │ compact + write      │                  │
+    │                     │──snapshot_2.txt────▶ volume            │
+    │                     │                     │                  │
+    │                     │ PUT lexrs/snapshot   │                  │
+    │                     │────────────────────▶│                  │
+    │                     │                     │  long-poll fires │
+    │                     │                     │─────────────────▶│
+    │                     │                     │  version=2       │
+    │                     │                     │◀─────────────────│
+    │                     │                     │                  │ load + reduce
+    │                     │                     │                  │ arc-swap
+    │  GET /search?q=ap*  │                     │                  │
+    │────────────────────────────────────────────────────────────▶│
+    │  ["apple","apply"]  │                     │                  │
+    │◀────────────────────────────────────────────────────────────│
 ```
-
-**Write path**
-
-1. Clients send words to `POST /words`. The writer inserts them into an in-memory Trie.
-2. On a configurable interval (or via `POST /compact`), the writer merges the delta Trie with the existing snapshot file using a streaming sorted zipper (O(1) memory).
-3. The new snapshot is written atomically (`.tmp` + rename), then announced via a Consul KV write.
-
-**Read path**
-
-1. Each reader loads the latest snapshot into a DAWG at startup.
-2. Readers long-poll Consul (`?wait=30s`) for new snapshot versions.
-3. When a new version is announced, the reader loads it and atomically swaps the in-memory DAWG via `arc-swap` — no downtime, no request drops.
 
 ---
 
-## writer
-
-### Start
+## Running the writer
 
 ```bash
-writer --host 0.0.0.0 --port 3000 \
-       --snapshot-dir /snapshots \
-       --consul http://localhost:8500 \
-       --compact-interval 60
+writer \
+  --host 0.0.0.0 \
+  --port 3000 \
+  --snapshot-dir /snapshots \
+  --consul http://localhost:8500 \
+  --compact-interval 60
 ```
 
-All flags can also be set via environment variables.
+Every flag has a corresponding environment variable:
 
-### Configuration
+| Flag | Env var | Default |
+|---|---|---|
+| `--host` | `WRITER_HOST` | `0.0.0.0` |
+| `--port` | `WRITER_PORT` | `3000` |
+| `--snapshot-dir` | `SNAPSHOT_DIR` | `/snapshots` |
+| `--consul` | `CONSUL_ADDR` | `http://consul:8500` |
+| `--compact-interval` | `COMPACT_INTERVAL` | `60` |
 
-| Flag | Env var | Default | Description |
-|---|---|---|---|
-| `--host` | `WRITER_HOST` | `0.0.0.0` | Bind address |
-| `--port` | `WRITER_PORT` | `3000` | Listen port |
-| `--snapshot-dir` | `SNAPSHOT_DIR` | `/snapshots` | Shared volume path |
-| `--consul` | `CONSUL_ADDR` | `http://consul:8500` | Consul HTTP address |
-| `--compact-interval` | `COMPACT_INTERVAL` | `60` | Auto-compact interval (seconds) |
+### Ingesting words
 
-### Routes
-
-| Method | Path | Body | Description |
-|---|---|---|---|
-| `POST` | `/words` | `{"words": [...], "count": 1}` | Ingest words into the live Trie |
-| `POST` | `/compact` | — | Trigger compaction immediately |
-| `GET` | `/snapshot/:ver` | — | Download snapshot file by version |
-| `GET` | `/health` | — | Health check (polled by Consul) |
-| `GET` | `/stats` | — | `{"words": N, "nodes": N}` |
-
-### Ingest examples
-
-**Uniform count** — all words get the same frequency:
+Send a JSON object with a `words` array. Each element can be a plain string (uses the top-level `count`) or an object with its own count:
 
 ```bash
+# All words get count = 1 (the default)
 curl -X POST http://localhost:3000/words \
   -H 'Content-Type: application/json' \
-  -d '{"words": ["apple", "apply", "apt", "banana"]}'
-# {"inserted": 4}
-```
+  -d '{"words": ["apple", "apply", "apt"]}'
 
-**Per-word counts** — mix plain strings and `{"word", "count"}` objects:
+# All words get count = 3
+curl -X POST http://localhost:3000/words \
+  -H 'Content-Type: application/json' \
+  -d '{"words": ["apple", "apply", "apt"], "count": 3}'
 
-```bash
+# Per-word counts — mix strings and objects freely
 curl -X POST http://localhost:3000/words \
   -H 'Content-Type: application/json' \
   -d '{
     "words": [
-      {"word": "apple",  "count": 10},
-      {"word": "apply",  "count": 3},
+      {"word": "apple", "count": 10},
+      {"word": "apply", "count": 3},
       "apt"
     ]
   }'
-# {"inserted": 3}
 ```
 
-**Force compaction** — makes queued words immediately visible to readers:
+Response:
+
+```json
+{"inserted": 3}
+```
+
+### Triggering compaction
+
+By default the writer compacts every 60 seconds. To flush immediately — useful after a bulk load or in tests:
 
 ```bash
 curl -X POST http://localhost:3000/compact
-# {"status": "ok", "version": 1}
 ```
 
-**Writer stats** — shows the live delta Trie (words not yet compacted):
+```json
+{"status": "ok", "version": 2}
+```
+
+The version number increments with each compaction. After this call, readers will pick up the new snapshot within one Consul poll cycle (≤ 30 seconds).
+
+### Checking writer stats
+
+Stats reflect the **live delta Trie** — words ingested since the last compaction, not yet visible to readers:
 
 ```bash
 curl http://localhost:3000/stats
-# {"words": 42, "nodes": 187}
 ```
 
-!!! note
-    Words in the writer's Trie are **not visible to readers** until compaction runs. Use `POST /compact` to flush immediately.
+```json
+{"words": 47, "nodes": 203}
+```
+
+If both numbers are 0 after a compaction, all words have been flushed to the snapshot and readers have everything.
 
 ---
 
-## reader
-
-### Start
+## Running the reader
 
 ```bash
-reader --host 0.0.0.0 --port 3001 \
-       --snapshot-dir /snapshots \
-       --consul http://localhost:8500
+reader \
+  --host 0.0.0.0 \
+  --port 3001 \
+  --snapshot-dir /snapshots \
+  --consul http://localhost:8500
 ```
 
-### Configuration
+| Flag | Env var | Default |
+|---|---|---|
+| `--host` | `READER_HOST` | `0.0.0.0` |
+| `--port` | `READER_PORT` | `3001` |
+| `--snapshot-dir` | `SNAPSHOT_DIR` | `/snapshots` |
+| `--consul` | `CONSUL_ADDR` | `http://consul:8500` |
 
-| Flag | Env var | Default | Description |
-|---|---|---|---|
-| `--host` | `READER_HOST` | `0.0.0.0` | Bind address |
-| `--port` | `READER_PORT` | `3001` | Listen port |
-| `--snapshot-dir` | `SNAPSHOT_DIR` | `/snapshots` | Shared volume path |
-| `--consul` | `CONSUL_ADDR` | `http://consul:8500` | Consul HTTP address |
-
-### Routes
-
-| Method | Path | Params | Description |
-|---|---|---|---|
-| `GET` | `/search` | `q=<pattern>[&dist=N][&with_count=true]` | Wildcard or fuzzy search |
-| `GET` | `/prefix` | `q=<prefix>[&with_count=true]` | Prefix completion |
-| `GET` | `/contains` | `q=<word>` | Exact membership — `{"found": bool}` |
-| `GET` | `/health` | — | Health check |
-| `GET` | `/stats` | — | `{"words": N, "nodes": N}` |
-
-### Search examples
-
-**Wildcard search:**
+### Wildcard search
 
 ```bash
+# Zero or more characters
 curl 'http://localhost:3001/search?q=ap*'
 # ["apple", "apply", "apt"]
 
-curl 'http://localhost:3001/search?q=b????'
-# ["bible"] — exactly 5 chars starting with b
-```
+# Exactly one character
+curl 'http://localhost:3001/search?q=appl?'
+# ["apple", "apply"]
 
-**Wildcard with counts:**
-
-```bash
+# With frequency counts
 curl 'http://localhost:3001/search?q=ap*&with_count=true'
-# [{"word": "apple", "count": 10}, {"word": "apply", "count": 3}, {"word": "apt", "count": 1}]
+# [{"word":"apple","count":10}, {"word":"apply","count":3}, {"word":"apt","count":1}]
 ```
 
-**Levenshtein fuzzy search:**
+### Fuzzy search
 
 ```bash
-# words within edit distance 1 of "aple"
+# Levenshtein distance ≤ 1
 curl 'http://localhost:3001/search?q=aple&dist=1'
 # ["apple"]
 
-# broader search
-curl 'http://localhost:3001/search?q=bannana&dist=2'
-# ["banana"]
-
-# fuzzy with counts
-curl 'http://localhost:3001/search?q=aple&dist=1&with_count=true'
-# [{"word": "apple", "count": 10}]
+# Distance ≤ 2 with counts
+curl 'http://localhost:3001/search?q=bannana&dist=2&with_count=true'
+# [{"word":"banana","count":5}]
 ```
 
-**Prefix completion:**
+### Prefix completion
 
 ```bash
 curl 'http://localhost:3001/prefix?q=app'
 # ["apple", "apply"]
 
 curl 'http://localhost:3001/prefix?q=app&with_count=true'
-# [{"word": "apple", "count": 10}, {"word": "apply", "count": 3}]
+# [{"word":"apple","count":10}, {"word":"apply","count":3}]
 ```
 
-**Exact lookup:**
+### Exact lookup
 
 ```bash
 curl 'http://localhost:3001/contains?q=apple'
@@ -207,11 +224,20 @@ curl 'http://localhost:3001/contains?q=appl'
 # {"found": false}
 ```
 
+### Reader stats
+
+Stats reflect the DAWG loaded from the latest snapshot — the full compacted lexicon:
+
+```bash
+curl 'http://localhost:3001/stats'
+# {"words": 1250000, "nodes": 420000}
+```
+
 ---
 
 ## Snapshot format
 
-Each snapshot is a plain-text file on the shared volume:
+Snapshots are plain UTF-8 text files on the shared volume, one entry per line:
 
 ```
 apple 10
@@ -220,6 +246,4 @@ apt 1
 banana 5
 ```
 
-One `word count` pair per line, sorted lexicographically. Compaction merges the existing snapshot with the new delta in a single streaming pass — memory usage during compaction is O(1) regardless of lexicon size. If a word appears in both, counts are summed.
-
-Snapshots are named `snapshot_<version>.txt` and are never deleted automatically, making it easy to roll back.
+Lines are sorted lexicographically. The format is intentionally simple — you can inspect, diff, or modify snapshots with standard Unix tools. The filename is `snapshot_<version>.txt`; old versions are not deleted automatically, so you can roll back by pointing Consul at an older version.

@@ -1,109 +1,83 @@
 # lexrs
 
-**lexrs** is a high-performance lexicon library implementing two data structures — **Trie** and **DAWG** (Directed Acyclic Word Graph) — compiled in Rust with Python bindings via [PyO3](https://pyo3.rs).
+lexrs is a lexicon library built in Rust. It gives you two data structures — **Trie** and **DAWG** — that let you store large word lists and search them with wildcards, prefix completion, and fuzzy (Levenshtein) matching.
 
-It is the successor to [lexpy](https://github.com/aosingh/lexpy). The API is identical, but insertion and search run 10–100× faster by moving the core data structures to Rust.
-
----
-
-## Install
-
-=== "Python"
-
-    ```bash
-    pip install pylexrs
-    ```
-
-=== "Rust"
-
-    ```toml
-    # Cargo.toml
-    [dependencies]
-    lexrs = "0.2"
-    ```
-
-=== "HTTP Server"
-
-    ```bash
-    cargo install lexrs-server
-    ```
+If you have used [lexpy](https://github.com/aosingh/lexpy) before, the API is the same. The difference is speed: the core data structures are compiled Rust, so insertion and search run 10–100× faster.
 
 ---
 
-## What's inside
+## Choose your entry point
 
-| Component | Description |
-|---|---|
-| **`lexrs`** (Rust crate) | Core Trie and DAWG implementations. Use as a library in any Rust project. |
-| **`pylexrs`** (Python package) | PyO3 bindings exposing the same API to Python. Drop-in replacement for `lexpy`. |
-| **`lexrs-server`** (Rust crate) | Two production binaries — `writer` and `reader` — forming a horizontally scalable HTTP search service. |
+<div class="grid cards" markdown>
+
+-   **Python package**
+
+    ---
+
+    Install `pylexrs` from PyPI and use `Trie` and `DAWG` from Python. Pre-built wheels for Python 3.11–3.14 on Linux, macOS, and Windows — no Rust toolchain needed.
+
+    [:octicons-arrow-right-24: Python guide](python.md)
+
+-   **Rust library**
+
+    ---
+
+    Add `lexrs` to your `Cargo.toml` and use the data structures natively in Rust. Zero overhead, full type safety.
+
+    [:octicons-arrow-right-24: Rust guide](rust.md)
+
+-   **HTTP server**
+
+    ---
+
+    Run `writer` and `reader` as separate processes. The writer accepts word ingestion; readers serve search queries from a compressed DAWG. Scale readers horizontally.
+
+    [:octicons-arrow-right-24: Server guide](server.md)
+
+-   **Docker Compose**
+
+    ---
+
+    Bring up the full stack — Consul, writer, two readers, and nginx — with a single command.
+
+    [:octicons-arrow-right-24: Docker guide](docker.md)
+
+</div>
 
 ---
 
-## Architecture overview
+## Trie vs DAWG — which should I use?
 
-At the library level, **Trie** and **DAWG** share the same interface. Choose based on your use case:
+Both support the same search operations. The difference is in how they store words.
 
-- **Trie** — insertions in any order; good for mutable, delta-style ingestion.
-- **DAWG** — words must be inserted in sorted order; call `reduce()` after loading. Compresses shared suffixes on top of shared prefixes, producing a much smaller node count for large lexicons. Ideal for read-heavy workloads.
-
-For production deployments the HTTP server separates writes from reads:
+A **Trie** shares prefixes. The words `apple`, `apply`, and `apt` share the prefix `ap`, so they share nodes:
 
 ```
-            ┌───────────┐
-  writes ──▶│  writer   │──▶ shared volume (snapshots/)
-            └─────┬─────┘         │
-                  │ Consul KV     │
-                  ▼               ▼
-            ┌─────────────┐  ┌──────────┐
-            │   Consul    │─▶│ reader   │ × N ──▶ search queries
-            └─────────────┘  └──────────┘
+        (root)
+          │
+          a
+          │
+          p ──────────────┐
+          │               │
+          p               t  ← "apt"
+          │
+          l
+         / \
+        e   y
+        ↑   ↑
+     "apple" "apply"
 ```
 
-- The **writer** buffers incoming words in a Trie and compacts them periodically into a versioned snapshot file on a shared volume.
-- Each **reader** loads the latest snapshot into a DAWG and hot-reloads new versions without downtime via Consul's blocking-query watch.
-- **nginx** routes write endpoints to the writer and read endpoints round-robin across all readers.
+A **DAWG** also shares suffixes. Words with the same endings — like `nation` and `action` — collapse their shared `tion` suffix into a single path through the graph. For large dictionaries this can reduce node count by 3–5×.
 
----
+The practical rule:
 
-## Quick example
+| | Trie | DAWG |
+|---|---|---|
+| Words arrive in any order | ✓ | — |
+| Words can be inserted incrementally | ✓ | — |
+| Large, mostly-static lexicon | — | ✓ |
+| Lowest possible memory footprint | — | ✓ |
+| Build once, read many times | either | prefer DAWG |
 
-=== "Python"
-
-    ```python
-    from lexrs import Trie
-
-    t = Trie()
-    t.add_all(["apple", "apply", "apt", "banana"])
-
-    t.search("ap*")                        # ["apple", "apply", "apt"]
-    t.search_within_distance("aple", 1)    # ["apple"]  (Levenshtein ≤ 1)
-    t.search_with_prefix("ban")            # ["banana"]
-    ```
-
-=== "Rust"
-
-    ```rust
-    use lexrs::Trie;
-
-    let mut trie = Trie::new();
-    trie.add_all(vec!["apple", "apply", "apt", "banana"]).unwrap();
-
-    let results = trie.search("ap*").unwrap();          // ["apple", "apply", "apt"]
-    let fuzzy   = trie.search_within_distance("aple", 1); // ["apple"]
-    ```
-
-=== "HTTP"
-
-    ```bash
-    # ingest
-    curl -X POST http://localhost/words \
-      -H 'Content-Type: application/json' \
-      -d '{"words": ["apple", "apply", "apt", "banana"]}'
-
-    # wildcard search
-    curl 'http://localhost/search?q=ap*'
-
-    # fuzzy search
-    curl 'http://localhost/search?q=aple&dist=1'
-    ```
+In the HTTP server the writer uses a Trie (delta ingestion, any order) and the reader uses a DAWG (built from a sorted snapshot, optimised for search).
