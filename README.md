@@ -6,11 +6,11 @@ A Rust library implementing two efficient lexicon data structures — **Trie** a
 
 ## Table of contents
 
+- [Install](#install)
 - [Data structures](#data-structures)
 - [Features](#features)
 - [Rust usage](#rust-usage)
 - [Python usage](#python-usage)
-  - [Build & install](#build--install)
   - [API](#api)
   - [Wildcard syntax](#wildcard-syntax)
 - [Production HTTP server](#production-http-server)
@@ -18,6 +18,31 @@ A Rust library implementing two efficient lexicon data structures — **Trie** a
 - [Project structure](#project-structure)
 - [Related components](#related-components)
 - [License](#license)
+
+## Install
+
+**Rust library** — add to `Cargo.toml`:
+
+```toml
+[dependencies]
+lexrs = "0.2"
+```
+
+**Python package**:
+
+```bash
+pip install pylexrs
+```
+
+**HTTP server binaries**:
+
+```bash
+cargo install lexrs-server
+```
+
+This installs both the `writer` and `reader` binaries. See the [Production HTTP server](#production-http-server) section for deployment details.
+
+---
 
 ## Data structures
 
@@ -54,7 +79,7 @@ Both `Trie` and `DAWG` expose the same API:
 ```toml
 # Cargo.toml
 [dependencies]
-lexrs = { path = "." }
+lexrs = "0.2"
 ```
 
 ```rust
@@ -82,16 +107,10 @@ assert!(dawg.contains("apple"));
 
 ## Python usage
 
-The library is also available as the `lexrs` Python package, built with Maturin.
-
-### Build & install
+The library is available on PyPI as `pylexrs`:
 
 ```bash
-# Install Maturin (once)
-pip install maturin
-
-# Build and install into the current virtualenv
-maturin develop --features python
+pip install pylexrs
 ```
 
 ### API
@@ -196,8 +215,8 @@ The writer and reader are built from a single Dockerfile — the `command:` fiel
 # Rust unit tests
 cargo test
 
-# Python tests (requires the package to be built first)
-maturin develop --features python
+# Python tests
+pip install pylexrs pytest
 pytest tests/
 ```
 
