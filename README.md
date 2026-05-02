@@ -4,6 +4,8 @@ A Rust library implementing two efficient lexicon data structures — **Trie** a
 
 `lexrs` is the successor to [lexpy](https://github.com/aosingh/lexpy) (pure Python). It exposes the same API while delivering 10–100× faster insertion and search by moving the core data structures to Rust.
 
+**Documentation:** [aosingh.github.io/lexrs](https://aosingh.github.io/lexrs/)
+
 ## Table of contents
 
 - [Install](#install)
