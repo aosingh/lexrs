@@ -144,11 +144,17 @@ async fn run_compact(state: &WriterState) -> Result<u64, String> {
     }
 
     // 2. Merge with existing snapshot (streaming — O(1) memory)
-    let next_version = state.version.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let next_version = state
+        .version
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        + 1;
     let current_version = next_version - 1;
 
     let existing_path = if current_version > 0 {
-        Some(format!("{}/snapshot_{}.txt", state.snapshot_dir, current_version))
+        Some(format!(
+            "{}/snapshot_{}.txt",
+            state.snapshot_dir, current_version
+        ))
     } else {
         None
     };
@@ -171,7 +177,10 @@ async fn run_compact(state: &WriterState) -> Result<u64, String> {
     // 4. Clear Trie — it only holds the delta since last compact
     *state.trie.write().unwrap() = Trie::new();
 
-    println!("[compact] v{next_version}: merged {} new words", new_words.len());
+    println!(
+        "[compact] v{next_version}: merged {} new words",
+        new_words.len()
+    );
     Ok(next_version)
 }
 
@@ -281,3 +290,135 @@ fn hostname() -> String {
 
 // bring axum::response::IntoResponse into scope for get_snapshot
 use axum::response::IntoResponse;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    fn test_state(snapshot_dir: &str) -> Shared {
+        Arc::new(WriterState {
+            trie: RwLock::new(Trie::new()),
+            snapshot_dir: snapshot_dir.to_string(),
+            consul_addr: "http://127.0.0.1:1".to_string(),
+            version: std::sync::atomic::AtomicU64::new(0),
+        })
+    }
+
+    fn build_app(state: Shared) -> Router {
+        Router::new()
+            .route("/words", post(ingest))
+            .route("/compact", post(compact_handler))
+            .route("/snapshot/{version}", get(get_snapshot))
+            .route("/health", get(health))
+            .route("/stats", get(stats))
+            .with_state(state)
+    }
+
+    #[tokio::test]
+    async fn test_health() {
+        let res = build_app(test_state("/tmp"))
+            .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn test_ingest_simple_words() {
+        let res = build_app(test_state("/tmp"))
+            .oneshot(
+                Request::post("/words")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"words": ["apple", "banana", "cherry"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["inserted"], 3);
+    }
+
+    #[tokio::test]
+    async fn test_ingest_with_per_word_counts() {
+        let res = build_app(test_state("/tmp"))
+            .oneshot(
+                Request::post("/words")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"words": [{"word": "apple", "count": 5}, "banana"]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["inserted"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_stats_after_ingest() {
+        let state = test_state("/tmp");
+        build_app(Arc::clone(&state))
+            .oneshot(
+                Request::post("/words")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"words": ["apple", "apply", "apt"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let res = build_app(Arc::clone(&state))
+            .oneshot(Request::get("/stats").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["words"], 3);
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_not_found() {
+        let res = build_app(test_state("/tmp"))
+            .oneshot(Request::get("/snapshot/9999").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_compact_fails_without_consul() {
+        let res = build_app(test_state("/tmp"))
+            .oneshot(
+                Request::post("/words")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"words": ["apple"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // Compact will fail because Consul is unreachable — expect 500
+        let state = test_state("/tmp");
+        {
+            state.trie.write().unwrap().add("apple", 1).unwrap();
+        }
+        let res = build_app(state)
+            .oneshot(Request::post("/compact").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}

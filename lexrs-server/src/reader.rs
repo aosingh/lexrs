@@ -358,3 +358,161 @@ async fn main() {
 fn hostname() -> String {
     std::env::var("HOSTNAME").unwrap_or_else(|_| "reader".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arc_swap::ArcSwap;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use http_body_util::BodyExt;
+    use lexrs::Dawg;
+    use tower::ServiceExt;
+
+    fn test_state() -> Shared {
+        let mut dawg = Dawg::new();
+        dawg.add("apple", 3).unwrap();
+        dawg.add("apply", 1).unwrap();
+        dawg.add("apt", 2).unwrap();
+        dawg.add("banana", 5).unwrap();
+        dawg.reduce();
+        Arc::new(ReaderState {
+            dawg: ArcSwap::new(Arc::new(dawg)),
+            snapshot_dir: "/tmp".to_string(),
+            consul_addr: "http://127.0.0.1:1".to_string(),
+        })
+    }
+
+    fn build_app(state: Shared) -> Router {
+        Router::new()
+            .route("/search", get(search))
+            .route("/prefix", get(prefix_search))
+            .route("/contains", get(contains))
+            .route("/health", get(health))
+            .route("/stats", get(stats))
+            .with_state(state)
+    }
+
+    #[tokio::test]
+    async fn test_health() {
+        let res = build_app(test_state())
+            .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn test_contains_found() {
+        let res = build_app(test_state())
+            .oneshot(
+                Request::get("/contains?q=apple")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["found"], true);
+    }
+
+    #[tokio::test]
+    async fn test_contains_not_found() {
+        let res = build_app(test_state())
+            .oneshot(
+                Request::get("/contains?q=cherry")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["found"], false);
+    }
+
+    #[tokio::test]
+    async fn test_prefix_search() {
+        let res = build_app(test_state())
+            .oneshot(Request::get("/prefix?q=ap").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let mut words: Vec<String> = serde_json::from_slice(&body).unwrap();
+        words.sort();
+        assert_eq!(words, vec!["apple", "apply", "apt"]);
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_search() {
+        let res = build_app(test_state())
+            .oneshot(Request::get("/search?q=b*").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let words: Vec<String> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(words, vec!["banana"]);
+    }
+
+    #[tokio::test]
+    async fn test_fuzzy_search() {
+        let res = build_app(test_state())
+            .oneshot(
+                Request::get("/search?q=aple&dist=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let words: Vec<String> = serde_json::from_slice(&body).unwrap();
+        assert!(words.contains(&"apple".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_search_with_count() {
+        let res = build_app(test_state())
+            .oneshot(
+                Request::get("/search?q=apple&with_count=true")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let results: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["word"], "apple");
+        assert_eq!(results[0]["count"], 3);
+    }
+
+    #[tokio::test]
+    async fn test_stats() {
+        let res = build_app(test_state())
+            .oneshot(Request::get("/stats").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // word_count() returns sum of all frequencies: 3+1+2+5 = 11
+        assert_eq!(json["words"], 11);
+    }
+
+    #[test]
+    fn test_base64_decode() {
+        assert_eq!(base64_decode("aGVsbG8=").unwrap(), "hello");
+        assert_eq!(base64_decode("d29ybGQ=").unwrap(), "world");
+        assert_eq!(base64_decode("Zm9v").unwrap(), "foo");
+    }
+}

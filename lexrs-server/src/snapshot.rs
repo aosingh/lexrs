@@ -13,7 +13,7 @@ pub async fn merge_and_write(
 ) -> std::io::Result<()> {
     tokio::fs::create_dir_all(snapshot_dir).await?;
 
-    let tmp_path   = format!("{snapshot_dir}/snapshot_{version}.tmp");
+    let tmp_path = format!("{snapshot_dir}/snapshot_{version}.tmp");
     let final_path = format!("{snapshot_dir}/snapshot_{version}.txt");
 
     let mut out = BufWriter::new(std::fs::File::create(&tmp_path)?);
@@ -25,7 +25,11 @@ pub async fn merge_and_write(
             .filter_map(|l| l.ok())
             .filter_map(|l| {
                 let l = l.trim().to_string();
-                if l.is_empty() { None } else { parse_line(&l).ok() }
+                if l.is_empty() {
+                    None
+                } else {
+                    parse_line(&l).ok()
+                }
             })
             .peekable();
 
@@ -33,9 +37,9 @@ pub async fn merge_and_write(
 
         loop {
             let ord = match (file_iter.peek(), new_iter.peek()) {
-                (None, None)             => break,
-                (Some(_), None)          => std::cmp::Ordering::Less,
-                (None, Some(_))          => std::cmp::Ordering::Greater,
+                (None, None) => break,
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
                 (Some((fw, _)), Some((nw, _))) => fw.as_str().cmp(nw.as_str()),
             };
             match ord {
@@ -93,5 +97,106 @@ fn parse_line(line: &str) -> Result<(String, usize), String> {
             Ok((word.to_string(), count))
         }
         None => Ok((line.to_string(), 1)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_parse_line_with_count() {
+        let (word, count) = parse_line("apple 5").unwrap();
+        assert_eq!(word, "apple");
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn test_parse_line_without_count() {
+        let (word, count) = parse_line("apple").unwrap();
+        assert_eq!(word, "apple");
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_parse_line_uses_last_space() {
+        // rsplit_once splits on the last space
+        let (word, count) = parse_line("hello world 3").unwrap();
+        assert_eq!(word, "hello world");
+        assert_eq!(count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_merge_no_existing_snapshot() {
+        let dir = tempdir().unwrap();
+        let snap_dir = dir.path().to_str().unwrap();
+        let new_words = vec![("apple".to_string(), 3usize), ("apply".to_string(), 1usize)];
+
+        merge_and_write(snap_dir, 1, None, &new_words)
+            .await
+            .unwrap();
+
+        let content = fs::read_to_string(format!("{snap_dir}/snapshot_1.txt")).unwrap();
+        assert_eq!(content, "apple 3\napply 1\n");
+    }
+
+    #[tokio::test]
+    async fn test_merge_with_existing_snapshot() {
+        let dir = tempdir().unwrap();
+        let snap_dir = dir.path().to_str().unwrap();
+        let existing = format!("{snap_dir}/snapshot_1.txt");
+        fs::write(&existing, "apple 3\nbanana 2\n").unwrap();
+
+        let new_words = vec![
+            ("apply".to_string(), 1usize),
+            ("cherry".to_string(), 4usize),
+        ];
+        merge_and_write(snap_dir, 2, Some(&existing), &new_words)
+            .await
+            .unwrap();
+
+        let content = fs::read_to_string(format!("{snap_dir}/snapshot_2.txt")).unwrap();
+        assert_eq!(content, "apple 3\napply 1\nbanana 2\ncherry 4\n");
+    }
+
+    #[tokio::test]
+    async fn test_merge_sums_duplicate_counts() {
+        let dir = tempdir().unwrap();
+        let snap_dir = dir.path().to_str().unwrap();
+        let existing = format!("{snap_dir}/snapshot_1.txt");
+        fs::write(&existing, "apple 3\nbanana 2\n").unwrap();
+
+        let new_words = vec![("apple".to_string(), 7usize)];
+        merge_and_write(snap_dir, 2, Some(&existing), &new_words)
+            .await
+            .unwrap();
+
+        let content = fs::read_to_string(format!("{snap_dir}/snapshot_2.txt")).unwrap();
+        assert_eq!(content, "apple 10\nbanana 2\n");
+    }
+
+    #[tokio::test]
+    async fn test_load_snapshot() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("snapshot_1.txt");
+        fs::write(&path, "apple 3\napply 1\napt 2\n").unwrap();
+
+        let dawg = load(path.to_str().unwrap()).await.unwrap();
+        assert!(dawg.contains("apple"));
+        assert!(dawg.contains("apply"));
+        assert!(dawg.contains("apt"));
+        assert!(!dawg.contains("banana"));
+    }
+
+    #[tokio::test]
+    async fn test_load_empty_snapshot() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("snapshot_empty.txt");
+        fs::write(&path, "").unwrap();
+
+        let dawg = load(path.to_str().unwrap()).await.unwrap();
+        assert_eq!(dawg.word_count(), 0);
     }
 }
