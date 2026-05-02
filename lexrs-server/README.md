@@ -2,6 +2,14 @@
 
 Production HTTP server for the `lexrs` lexicon library. Compiled as two separate binaries — **writer** and **reader** — that together form a read-scale architecture backed by Consul for service discovery and snapshot coordination.
 
+## Install
+
+```bash
+cargo install lexrs-server
+```
+
+This installs both the `writer` and `reader` binaries. Requires [Consul](https://www.consul.io/) for snapshot coordination — see the `docker/` directory for a full Docker Compose stack.
+
 ## Architecture
 
 ```

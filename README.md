@@ -159,7 +159,7 @@ Consecutive wildcards are normalized (`**` → `*`, `?*` → `*`).
 
 ## Production HTTP server
 
-`lexrs` ships a production-ready HTTP service in [`lexrs-server/`](lexrs-server/) with two binaries:
+`lexrs` ships a production-ready HTTP service in [`lexrs-server/`](https://github.com/aosingh/lexrs/tree/main/lexrs-server) with two binaries:
 
 | Binary | Role |
 |---|---|
@@ -170,7 +170,7 @@ Consecutive wildcards are normalized (`**` → `*`, `?*` → `*`).
 
 ### Docker Compose — full stack in one command
 
-The [`docker/`](docker/) directory has a Compose file that brings up the entire stack:
+The [`docker/`](https://github.com/aosingh/lexrs/tree/main/docker) directory has a Compose file that brings up the entire stack:
 
 ```
 Consul ──► writer ──► (snapshots on shared volume)
@@ -207,7 +207,7 @@ curl -s 'http://localhost/search?pattern=app*'
 curl -s 'http://localhost/search?word=aple&dist=1'
 ```
 
-The writer and reader are built from a single Dockerfile — the `command:` field in Compose selects which binary to start. See [`lexrs-server/README.md`](lexrs-server/README.md) for the full API reference and configuration options.
+The writer and reader are built from a single Dockerfile — the `command:` field in Compose selects which binary to start. See [`lexrs-server/README.md`](https://github.com/aosingh/lexrs/blob/main/lexrs-server/README.md) for the full API reference and configuration options.
 
 ## Running tests
 
@@ -238,11 +238,11 @@ tests/
 
 | Directory | Description |
 |---|---|
-| [lexrs-server/](lexrs-server/) | Production HTTP server — a **writer** binary for word ingestion and compaction, and a **reader** binary for search. Readers scale horizontally and hot-reload snapshots via Consul. |
-| [docker/](docker/) | Docker Compose setup running the full stack: Consul, writer, two reader replicas, and an nginx reverse proxy that routes reads and writes to the right service. |
-| [lexpy-shim/](lexpy-shim/) | Source for `lexpy==2.x` — a one-file compatibility shim that re-exports `lexrs` so existing `lexpy` users can upgrade without changing their imports. |
-| [benchmarks/](benchmarks/) | Python scripts comparing `lexrs` against `lexpy` (pure Python) across insertion, prefix, wildcard, and Levenshtein workloads. |
-| [tests/](tests/) | Integration tests — `pytest` suite for the Python API and Rust-level integration tests. |
+| [lexrs-server/](https://github.com/aosingh/lexrs/tree/main/lexrs-server) | Production HTTP server — a **writer** binary for word ingestion and compaction, and a **reader** binary for search. Readers scale horizontally and hot-reload snapshots via Consul. |
+| [docker/](https://github.com/aosingh/lexrs/tree/main/docker) | Docker Compose setup running the full stack: Consul, writer, two reader replicas, and an nginx reverse proxy that routes reads and writes to the right service. |
+| [lexpy-shim/](https://github.com/aosingh/lexrs/tree/main/lexpy-shim) | Source for `lexpy==2.x` — a one-file compatibility shim that re-exports `lexrs` so existing `lexpy` users can upgrade without changing their imports. |
+| [benchmarks/](https://github.com/aosingh/lexrs/tree/main/benchmarks) | Python scripts comparing `lexrs` against `lexpy` (pure Python) across insertion, prefix, wildcard, and Levenshtein workloads. |
+| [tests/](https://github.com/aosingh/lexrs/tree/main/tests) | Integration tests — `pytest` suite for the Python API and Rust-level integration tests. |
 
 ## License
 
