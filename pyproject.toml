@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pylexrs"
-version = "0.1.0"
+version = "0.2.0"
 description = "Efficient lexicon data structures: Trie and DAWG"
 authors = [
     { name = "Abhishek Singh", email = "abhishek.singh20141@gmail.com" },

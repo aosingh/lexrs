@@ -7,8 +7,13 @@ on:
       - 'v*'
 
 jobs:
+  test:
+    name: Run tests
+    uses: ./.github/workflows/ci.yml
+
   linux:
     name: Linux (${{ matrix.target }})
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -33,6 +38,7 @@ jobs:
 
   macos:
     name: macOS (${{ matrix.target }}, Python ${{ matrix.python-version }})
+    needs: test
     runs-on: macos-latest
     strategy:
       matrix:
@@ -71,6 +77,7 @@ jobs:
 
   windows:
     name: Windows (Python ${{ matrix.python-version }})
+    needs: test
     runs-on: windows-latest
     strategy:
       matrix:
@@ -103,6 +110,7 @@ jobs:
 
   sdist:
     name: Source distribution
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -119,7 +127,8 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [linux, macos, windows, sdist]
+    needs: [test, linux, macos, windows, sdist]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

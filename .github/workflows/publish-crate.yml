@@ -1,0 +1,42 @@
+name: Publish crate
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test:
+    name: Run tests
+    uses: ./.github/workflows/ci.yml
+
+  publish-lexrs:
+    name: Publish lexrs
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish lexrs
+        run: cargo publish -p lexrs
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  publish-lexrs-server:
+    name: Publish lexrs-server
+    needs: publish-lexrs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Wait for lexrs to be available on crates.io
+        run: sleep 30
+
+      - name: Publish lexrs-server
+        run: cargo publish -p lexrs-server
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

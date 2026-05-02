@@ -53,29 +53,28 @@ Both types expose the same interface:
 
 Consecutive wildcards are normalized: `**` → `*`, `?*` → `*`.
 
-## Building
+## Install
 
-```bash
-# Rust library only
-cargo build -p lexrs
+Add to your `Cargo.toml`:
 
-# With Python extension module
-cargo build -p lexrs --features python
-
-# Run Rust tests
-cargo test -p lexrs
-
-# Genome benchmark binary
-cargo run -p lexrs --bin genome_bench --release
+```toml
+[dependencies]
+lexrs = "0.1"
 ```
 
 ## Python bindings
 
-The Python extension is built by Maturin. See the root `pyproject.toml` for the full build config.
+The same data structures are available as a Python package:
 
 ```bash
-pip install maturin
-maturin develop --features python   # installs into the active virtualenv
+pip install pylexrs
+```
+
+```python
+from lexrs import Trie, DAWG
+t = Trie()
+t.add_all(["apple", "apply", "apt"])
+t.search("ap*")
 ```
 
 ```python

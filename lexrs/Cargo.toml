@@ -1,9 +1,16 @@
 [package]
 name        = "lexrs"
-version     = "0.1.0"
+version     = "0.2.0"
 edition     = "2024"
 description = "Efficient lexicon data structures: Trie and DAWG"
+authors     = ["Abhishek Singh <abhishek.singh20141@gmail.com>"]
 license     = "MIT"
+repository  = "https://github.com/aosingh/lexrs"
+homepage    = "https://github.com/aosingh/lexrs"
+documentation = "https://docs.rs/lexrs"
+readme      = "README.md"
+keywords    = ["trie", "dawg", "lexicon", "search", "nlp"]
+categories  = ["data-structures", "text-processing"]
 
 [lib]
 name        = "lexrs"

@@ -1,9 +1,16 @@
 [package]
-name        = "lexrs-server"
-version     = "0.1.0"
-edition     = "2024"
-description = "Production HTTP server for the lexrs lexicon library"
-license     = "MIT"
+name          = "lexrs-server"
+version       = "0.2.0"
+edition       = "2024"
+description   = "Production HTTP server for the lexrs lexicon library"
+authors       = ["Abhishek Singh <abhishek.singh20141@gmail.com>"]
+license       = "MIT"
+repository    = "https://github.com/aosingh/lexrs"
+homepage      = "https://github.com/aosingh/lexrs"
+documentation = "https://docs.rs/lexrs-server"
+readme        = "README.md"
+keywords      = ["trie", "dawg", "lexicon", "http", "server"]
+categories    = ["data-structures", "text-processing", "web-programming"]
 
 [[bin]]
 name = "writer"
@@ -14,7 +21,7 @@ name = "reader"
 path = "src/reader.rs"
 
 [dependencies]
-lexrs      = { path = "../lexrs" }
+lexrs      = { path = "../lexrs", version = "0.1" }
 axum       = "0.8"
 tokio      = { version = "1", features = ["full"] }
 reqwest    = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
