@@ -10,6 +10,43 @@ cargo install lexrs-server
 
 ---
 
+## Use cases
+
+**Autocomplete / typeahead**
+As a user types into a search box, send the current input to `GET /prefix`. The response is every known word that starts with what they've typed so far, ordered by insertion. Prefix lookups on a DAWG are fast enough to fire on every keystroke.
+
+```bash
+# User has typed "app"
+curl 'http://localhost/prefix?q=app'
+# ["apple", "application", "apply", "appointment"]
+```
+
+**Spell checking and did-you-mean**
+When a search query returns no results, retry with `GET /search?q=<word>&dist=1`. A distance of 1 catches most single-character typos. Return the results as suggestions.
+
+```bash
+curl 'http://localhost/search?q=recieve&dist=1'
+# ["receive"]
+```
+
+**Frequency-ranked suggestions**
+Ingest words with counts that reflect how often they appear in your corpus (page views, click counts, query frequency). Use `with_count=true` in prefix or wildcard search to get counts back, then rank suggestions by count in your application.
+
+```bash
+curl 'http://localhost/prefix?q=app&with_count=true'
+# [{"word":"application","count":9823}, {"word":"apple","count":412}, ...]
+```
+
+**Vocabulary validation**
+Check whether a submitted word exists in an allowed list before accepting it. `GET /contains` is an O(word length) exact lookup — no query parsing, no table scan.
+
+```bash
+curl 'http://localhost/contains?q=scrabble'
+# {"found": true}
+```
+
+---
+
 ## Why two binaries?
 
 Search reads and word writes have very different performance profiles.

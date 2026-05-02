@@ -9,6 +9,17 @@ The `docker/` directory has a Compose file that brings up the full stack in one 
 
 ---
 
+## Clone the repo
+
+The Compose file and Dockerfile live in the [`docker/`](https://github.com/aosingh/lexrs/tree/main/docker) directory of the lexrs repository:
+
+```bash
+git clone https://github.com/aosingh/lexrs.git
+cd lexrs
+```
+
+---
+
 ## Start
 
 ```bash
