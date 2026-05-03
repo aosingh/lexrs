@@ -1,6 +1,6 @@
 # Docker Setup
 
-The `docker/` directory has a Compose file that brings up the full stack in one command. This page walks through what each service does, how they connect, and how to interact with the running system.
+The [`docker/`](https://github.com/aosingh/lexrs/tree/main/docker) directory has a Compose file that brings up the full stack in one command. This page walks through what each service does, how they connect, and how to interact with the running system.
 
 ## Prerequisites
 

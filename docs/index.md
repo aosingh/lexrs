@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/lexrs?label=lexrs&color=orange)](https://crates.io/crates/lexrs)
 [![Crates.io](https://img.shields.io/crates/v/lexrs-server?label=lexrs-server&color=orange)](https://crates.io/crates/lexrs-server)
 
-lexrs is a lexicon library built in Rust. It gives you two data structures — **Trie** and **DAWG** — that let you store large word lists and search them with wildcards, prefix completion, and fuzzy (Levenshtein) matching.
+lexrs is a lexicon library built in Rust. It gives you two data structures — **Trie** and **DAWG** (Directed Acyclic Word Graph) — that let you store large word lists and search them with wildcards, prefix completion, and fuzzy (Levenshtein) matching.
 
 If you have used [lexpy](https://github.com/aosingh/lexpy) before, the API is the same. The difference is speed: the core data structures are compiled Rust, so insertion and search run 10–100× faster.
 
