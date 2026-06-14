@@ -103,6 +103,58 @@ A distance of 1 catches most typos. Distance 2 catches transpositions and double
 
 ---
 
+## Batch APIs
+
+Batch methods process a list of inputs in a single call. Internally they use Rayon's parallel iterator, so all inputs run concurrently across CPU cores. Compared to a Python loop over the single-item methods, they eliminate repeated FFI boundary crossings and scale with available cores.
+
+Results are always returned in the **same order as the input list**.
+
+### `batch_contains`
+
+Returns `list[bool]` — one entry per input word.
+
+```python
+words = ["apple", "apply", "cherry", "apt"]
+t.batch_contains(words)
+# [True, True, False, True]
+
+t.batch_contains([])   # []
+```
+
+### `batch_search`
+
+Returns `list[list[str]]` — one inner list per pattern. An unmatched pattern returns an empty inner list, not an error.
+
+```python
+t.batch_search(["ap*", "b*", "xyz*"])
+# [["apple", "apply", "apt"], ["banana"], []]
+```
+
+### `batch_search_with_prefix`
+
+Returns `list[list[str]]` — one inner list per prefix.
+
+```python
+t.batch_search_with_prefix(["app", "ban", "xyz"])
+# [["apple", "apply"], ["banana"], []]
+```
+
+### `batch_search_within_distance`
+
+Returns `list[list[str]]` — one inner list per word. `dist` defaults to `0` (exact match).
+
+```python
+t.batch_search_within_distance(["aple", "bannana"], dist=1)
+# [["apple"], ["banana"]]
+
+t.batch_search_within_distance(["apple", "banana"])  # dist=0
+# [["apple"], ["banana"]]
+```
+
+All four methods are available on both `Trie` and `DAWG` with identical signatures.
+
+---
+
 ## Stats
 
 ```python

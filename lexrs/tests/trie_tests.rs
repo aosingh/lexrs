@@ -196,3 +196,62 @@ fn test_search_within_distance() {
     r.sort();
     assert_eq!(r, vec!["ash", "ashe"]);
 }
+
+// ── Batch ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_batch_contains() {
+    let mut trie = Trie::new();
+    trie.add_all(["apple", "apply", "apt", "banana"].map(String::from)).unwrap();
+    assert_eq!(
+        trie.batch_contains(&["apple", "cherry", "apt"]),
+        vec![true, false, true]
+    );
+}
+
+#[test]
+fn test_batch_contains_empty() {
+    let trie = Trie::new();
+    let result: Vec<bool> = trie.batch_contains(&[] as &[&str]);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_batch_search() {
+    let mut trie = Trie::new();
+    trie.add_all(["apple", "apply", "apt", "banana"].map(String::from)).unwrap();
+    let result = trie.batch_search(&["ap*", "b*"]).unwrap();
+    assert_eq!(result.len(), 2);
+    let mut first = result[0].clone(); first.sort();
+    assert_eq!(first, vec!["apple", "apply", "apt"]);
+    assert_eq!(result[1], vec!["banana"]);
+}
+
+#[test]
+fn test_batch_search_with_prefix() {
+    let mut trie = Trie::new();
+    trie.add_all(["apple", "apply", "apt", "banana"].map(String::from)).unwrap();
+    let result = trie.batch_search_with_prefix(&["app", "ban", "xyz"]);
+    assert_eq!(result.len(), 3);
+    let mut first = result[0].clone(); first.sort();
+    assert_eq!(first, vec!["apple", "apply"]);
+    assert_eq!(result[1], vec!["banana"]);
+    assert!(result[2].is_empty());
+}
+
+#[test]
+fn test_batch_search_within_distance() {
+    let mut trie = Trie::new();
+    trie.add_all(["apple", "apply", "apt", "banana"].map(String::from)).unwrap();
+    let result = trie.batch_search_within_distance(&["aple", "bananaa"], 1);
+    assert!(result[0].contains(&"apple".to_string()));
+    assert!(result[1].contains(&"banana".to_string()));
+}
+
+#[test]
+fn test_batch_preserves_order() {
+    let mut trie = Trie::new();
+    trie.add_all(["apple", "banana"].map(String::from)).unwrap();
+    let result = trie.batch_contains(&["banana", "cherry", "apple"]);
+    assert_eq!(result, vec![true, false, true]);
+}

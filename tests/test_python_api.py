@@ -338,3 +338,193 @@ def test_repr():
     d = DAWG()
     d.add_all(["hello"])
     assert "DAWG" in repr(d)
+
+
+# ── Trie: batch_contains ──────────────────────────────────────────────────────
+
+@pytest.fixture
+def trie_batch():
+    t = Trie()
+    t.add_all(["apple", "apply", "apt", "banana", "band", "bandana"])
+    return t
+
+def test_trie_batch_contains_all_hits(trie_batch):
+    assert trie_batch.batch_contains(["apple", "banana", "band"]) == [True, True, True]
+
+def test_trie_batch_contains_all_misses(trie_batch):
+    assert trie_batch.batch_contains(["cherry", "grape", "mango"]) == [False, False, False]
+
+def test_trie_batch_contains_mixed(trie_batch):
+    assert trie_batch.batch_contains(["apple", "cherry", "apt"]) == [True, False, True]
+
+def test_trie_batch_contains_empty(trie_batch):
+    assert trie_batch.batch_contains([]) == []
+
+def test_trie_batch_contains_preserves_order(trie_batch):
+    words = ["apt", "cherry", "apple", "grape", "banana"]
+    result = trie_batch.batch_contains(words)
+    assert result == [True, False, True, False, True]
+
+
+# ── Trie: batch_search ────────────────────────────────────────────────────────
+
+def test_trie_batch_search_multiple_patterns(trie_batch):
+    result = trie_batch.batch_search(["ap*", "ban*"])
+    assert sorted(result[0]) == ["apple", "apply", "apt"]
+    assert sorted(result[1]) == ["banana", "band", "bandana"]
+
+def test_trie_batch_search_no_match(trie_batch):
+    result = trie_batch.batch_search(["xyz*", "ap*"])
+    assert result[0] == []
+    assert sorted(result[1]) == ["apple", "apply", "apt"]
+
+def test_trie_batch_search_empty(trie_batch):
+    assert trie_batch.batch_search([]) == []
+
+def test_trie_batch_search_preserves_order(trie_batch):
+    result = trie_batch.batch_search(["ban*", "ap*"])
+    assert sorted(result[0]) == ["banana", "band", "bandana"]
+    assert sorted(result[1]) == ["apple", "apply", "apt"]
+
+def test_trie_batch_search_question_mark(trie_batch):
+    result = trie_batch.batch_search(["ap?"])
+    assert sorted(result[0]) == ["apt"]
+
+
+# ── Trie: batch_search_with_prefix ───────────────────────────────────────────
+
+def test_trie_batch_search_with_prefix_multiple(trie_batch):
+    result = trie_batch.batch_search_with_prefix(["app", "ban"])
+    assert sorted(result[0]) == ["apple", "apply"]
+    assert sorted(result[1]) == ["banana", "band", "bandana"]
+
+def test_trie_batch_search_with_prefix_no_match(trie_batch):
+    result = trie_batch.batch_search_with_prefix(["xyz", "app"])
+    assert result[0] == []
+    assert sorted(result[1]) == ["apple", "apply"]
+
+def test_trie_batch_search_with_prefix_empty(trie_batch):
+    assert trie_batch.batch_search_with_prefix([]) == []
+
+def test_trie_batch_search_with_prefix_preserves_order(trie_batch):
+    result = trie_batch.batch_search_with_prefix(["ban", "app"])
+    assert sorted(result[0]) == ["banana", "band", "bandana"]
+    assert sorted(result[1]) == ["apple", "apply"]
+
+
+# ── Trie: batch_search_within_distance ───────────────────────────────────────
+
+def test_trie_batch_search_within_distance_d1(trie_batch):
+    result = trie_batch.batch_search_within_distance(["aple", "bananaa"], dist=1)
+    assert "apple" in result[0]
+    assert "banana" in result[1]
+
+def test_trie_batch_search_within_distance_d0_exact(trie_batch):
+    result = trie_batch.batch_search_within_distance(["apple", "cherry"])
+    assert result[0] == ["apple"]
+    assert result[1] == []
+
+def test_trie_batch_search_within_distance_no_match(trie_batch):
+    result = trie_batch.batch_search_within_distance(["zzzzzzz"], dist=1)
+    assert result[0] == []
+
+def test_trie_batch_search_within_distance_empty(trie_batch):
+    assert trie_batch.batch_search_within_distance([]) == []
+
+def test_trie_batch_search_within_distance_preserves_order(trie_batch):
+    result = trie_batch.batch_search_within_distance(["bananaa", "aple"], dist=1)
+    assert "banana" in result[0]
+    assert "apple" in result[1]
+
+
+# ── DAWG: batch_contains ─────────────────────────────────────────────────────
+
+@pytest.fixture
+def dawg_batch():
+    d = DAWG()
+    d.add_all(["apple", "apply", "apt", "banana", "band", "bandana"])
+    return d
+
+def test_dawg_batch_contains_all_hits(dawg_batch):
+    assert dawg_batch.batch_contains(["apple", "banana", "band"]) == [True, True, True]
+
+def test_dawg_batch_contains_all_misses(dawg_batch):
+    assert dawg_batch.batch_contains(["cherry", "grape", "mango"]) == [False, False, False]
+
+def test_dawg_batch_contains_mixed(dawg_batch):
+    assert dawg_batch.batch_contains(["apple", "cherry", "apt"]) == [True, False, True]
+
+def test_dawg_batch_contains_empty(dawg_batch):
+    assert dawg_batch.batch_contains([]) == []
+
+def test_dawg_batch_contains_preserves_order(dawg_batch):
+    words = ["apt", "cherry", "apple", "grape", "banana"]
+    result = dawg_batch.batch_contains(words)
+    assert result == [True, False, True, False, True]
+
+
+# ── DAWG: batch_search ────────────────────────────────────────────────────────
+
+def test_dawg_batch_search_multiple_patterns(dawg_batch):
+    result = dawg_batch.batch_search(["ap*", "ban*"])
+    assert sorted(result[0]) == ["apple", "apply", "apt"]
+    assert sorted(result[1]) == ["banana", "band", "bandana"]
+
+def test_dawg_batch_search_no_match(dawg_batch):
+    result = dawg_batch.batch_search(["xyz*", "ap*"])
+    assert result[0] == []
+    assert sorted(result[1]) == ["apple", "apply", "apt"]
+
+def test_dawg_batch_search_empty(dawg_batch):
+    assert dawg_batch.batch_search([]) == []
+
+def test_dawg_batch_search_preserves_order(dawg_batch):
+    result = dawg_batch.batch_search(["ban*", "ap*"])
+    assert sorted(result[0]) == ["banana", "band", "bandana"]
+    assert sorted(result[1]) == ["apple", "apply", "apt"]
+
+
+# ── DAWG: batch_search_with_prefix ───────────────────────────────────────────
+
+def test_dawg_batch_search_with_prefix_multiple(dawg_batch):
+    result = dawg_batch.batch_search_with_prefix(["app", "ban"])
+    assert sorted(result[0]) == ["apple", "apply"]
+    assert sorted(result[1]) == ["banana", "band", "bandana"]
+
+def test_dawg_batch_search_with_prefix_no_match(dawg_batch):
+    result = dawg_batch.batch_search_with_prefix(["xyz", "app"])
+    assert result[0] == []
+    assert sorted(result[1]) == ["apple", "apply"]
+
+def test_dawg_batch_search_with_prefix_empty(dawg_batch):
+    assert dawg_batch.batch_search_with_prefix([]) == []
+
+def test_dawg_batch_search_with_prefix_preserves_order(dawg_batch):
+    result = dawg_batch.batch_search_with_prefix(["ban", "app"])
+    assert sorted(result[0]) == ["banana", "band", "bandana"]
+    assert sorted(result[1]) == ["apple", "apply"]
+
+
+# ── DAWG: batch_search_within_distance ───────────────────────────────────────
+
+def test_dawg_batch_search_within_distance_d1(dawg_batch):
+    result = dawg_batch.batch_search_within_distance(["aple", "bananaa"], dist=1)
+    assert "apple" in result[0]
+    assert "banana" in result[1]
+
+def test_dawg_batch_search_within_distance_d0_exact(dawg_batch):
+    result = dawg_batch.batch_search_within_distance(["apple", "cherry"])
+    assert result[0] == ["apple"]
+    assert result[1] == []
+
+def test_dawg_batch_search_within_distance_no_match(dawg_batch):
+    result = dawg_batch.batch_search_within_distance(["zzzzzzz"], dist=1)
+    assert result[0] == []
+
+def test_dawg_batch_search_within_distance_empty(dawg_batch):
+    assert dawg_batch.batch_search_within_distance([]) == []
+
+def test_dawg_batch_search_within_distance_preserves_order(dawg_batch):
+    result = dawg_batch.batch_search_within_distance(["bananaa", "aple"], dist=1)
+    assert "banana" in result[0]
+    assert "apple" in result[1]

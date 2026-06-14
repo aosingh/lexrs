@@ -1,6 +1,6 @@
 [package]
 name          = "lexrs-server"
-version       = "0.2.0"
+version       = "1.0.0"
 edition       = "2024"
 description   = "Production HTTP server for the lexrs lexicon library"
 authors       = ["Abhishek Singh <abhishek.singh20141@gmail.com>"]
@@ -21,7 +21,7 @@ name = "reader"
 path = "src/reader.rs"
 
 [dependencies]
-lexrs      = { path = "../lexrs", version = "0.2" }
+lexrs      = { path = "../lexrs", version = "1.0" }
 axum       = "0.8"
 tokio      = { version = "1", features = ["full"] }
 reqwest    = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -29,6 +29,7 @@ serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 arc-swap   = "1"
 uuid       = { version = "1", features = ["v4"] }
+rayon      = "1"
 
 [dev-dependencies]
 tower            = { version = "0.5", features = ["util"] }

@@ -261,6 +261,50 @@ curl 'http://localhost:3001/contains?q=appl'
 # {"found": false}
 ```
 
+### Batch endpoints
+
+All batch endpoints accept `POST` with a JSON body and return results in the same order as the input.
+
+**Membership — multiple words**
+
+```bash
+curl -X POST http://localhost:3001/batch/contains \
+  -H 'Content-Type: application/json' \
+  -d '{"words": ["apple", "cherry", "apply"]}'
+# [true, false, true]
+```
+
+**Wildcard search — multiple patterns**
+
+```bash
+curl -X POST http://localhost:3001/batch/search \
+  -H 'Content-Type: application/json' \
+  -d '{"patterns": ["ap*", "b*"]}'
+# [["apple", "apply", "apt"], ["banana"]]
+```
+
+**Prefix completion — multiple prefixes**
+
+```bash
+curl -X POST http://localhost:3001/batch/prefix \
+  -H 'Content-Type: application/json' \
+  -d '{"prefixes": ["app", "ban"]}'
+# [["apple", "apply"], ["banana"]]
+```
+
+**Fuzzy search — multiple words**
+
+```bash
+curl -X POST http://localhost:3001/batch/search_within_distance \
+  -H 'Content-Type: application/json' \
+  -d '{"words": ["aple", "bannana"], "dist": 1}'
+# [["apple"], ["banana"]]
+```
+
+`dist` defaults to `0` if omitted. Each batch call processes all inputs in parallel using Rayon before returning a single JSON response.
+
+---
+
 ### Reader stats
 
 Stats reflect the DAWG loaded from the latest snapshot — the full compacted lexicon:

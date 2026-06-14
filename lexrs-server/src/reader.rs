@@ -25,7 +25,7 @@ use axum::{
     Json, Router,
     extract::{Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -71,6 +71,30 @@ struct ContainsQuery {
 struct WordCount {
     word: String,
     count: usize,
+}
+
+// ── batch request types ───────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct BatchContainsBody {
+    words: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct BatchSearchBody {
+    patterns: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct BatchPrefixBody {
+    prefixes: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct BatchDistanceBody {
+    words: Vec<String>,
+    #[serde(default)]
+    dist: usize,
 }
 
 // ── handlers ──────────────────────────────────────────────────────────────────
@@ -151,6 +175,59 @@ async fn contains(
 
 async fn health() -> (StatusCode, Json<serde_json::Value>) {
     (StatusCode::OK, Json(json!({ "status": "ok" })))
+}
+
+// ── batch handlers ────────────────────────────────────────────────────────────
+
+async fn batch_contains(
+    State(state): State<Shared>,
+    Json(body): Json<BatchContainsBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let dawg = state.dawg.load_full();
+    let results = tokio::task::spawn_blocking(move || dawg.batch_contains(&body.words))
+        .await
+        .unwrap();
+    (StatusCode::OK, Json(json!(results)))
+}
+
+async fn batch_search(
+    State(state): State<Shared>,
+    Json(body): Json<BatchSearchBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let dawg = state.dawg.load_full();
+    let result = tokio::task::spawn_blocking(move || dawg.batch_search(&body.patterns))
+        .await
+        .unwrap();
+    match result {
+        Ok(results) => (StatusCode::OK, Json(json!(results))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e.to_string() }))),
+    }
+}
+
+async fn batch_prefix(
+    State(state): State<Shared>,
+    Json(body): Json<BatchPrefixBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let dawg = state.dawg.load_full();
+    let results =
+        tokio::task::spawn_blocking(move || dawg.batch_search_with_prefix(&body.prefixes))
+            .await
+            .unwrap();
+    (StatusCode::OK, Json(json!(results)))
+}
+
+async fn batch_search_within_distance(
+    State(state): State<Shared>,
+    Json(body): Json<BatchDistanceBody>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let dawg = state.dawg.load_full();
+    let dist = body.dist;
+    let results = tokio::task::spawn_blocking(move || {
+        dawg.batch_search_within_distance(&body.words, dist)
+    })
+    .await
+    .unwrap();
+    (StatusCode::OK, Json(json!(results)))
 }
 
 async fn stats(State(state): State<Shared>) -> Json<serde_json::Value> {
@@ -341,6 +418,10 @@ async fn main() {
         .route("/contains", get(contains))
         .route("/health", get(health))
         .route("/stats", get(stats))
+        .route("/batch/contains", post(batch_contains))
+        .route("/batch/search", post(batch_search))
+        .route("/batch/prefix", post(batch_prefix))
+        .route("/batch/search_within_distance", post(batch_search_within_distance))
         .with_state(state);
 
     let addr = format!("{host}:{port}");
@@ -390,6 +471,10 @@ mod tests {
             .route("/contains", get(contains))
             .route("/health", get(health))
             .route("/stats", get(stats))
+            .route("/batch/contains", post(batch_contains))
+            .route("/batch/search", post(batch_search))
+            .route("/batch/prefix", post(batch_prefix))
+            .route("/batch/search_within_distance", post(batch_search_within_distance))
             .with_state(state)
     }
 
@@ -514,5 +599,83 @@ mod tests {
         assert_eq!(base64_decode("aGVsbG8=").unwrap(), "hello");
         assert_eq!(base64_decode("d29ybGQ=").unwrap(), "world");
         assert_eq!(base64_decode("Zm9v").unwrap(), "foo");
+    }
+
+    #[tokio::test]
+    async fn test_batch_contains() {
+        let res = build_app(test_state())
+            .oneshot(
+                Request::post("/batch/contains")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"words":["apple","cherry","banana"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let results: Vec<bool> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(results, vec![true, false, true]);
+    }
+
+    #[tokio::test]
+    async fn test_batch_search() {
+        let res = build_app(test_state())
+            .oneshot(
+                Request::post("/batch/search")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"patterns":["ap*","b*"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let results: Vec<Vec<String>> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(results.len(), 2);
+        let mut first = results[0].clone();
+        first.sort();
+        assert_eq!(first, vec!["apple", "apply", "apt"]);
+        assert_eq!(results[1], vec!["banana"]);
+    }
+
+    #[tokio::test]
+    async fn test_batch_prefix() {
+        let res = build_app(test_state())
+            .oneshot(
+                Request::post("/batch/prefix")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"prefixes":["ap","ba"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let results: Vec<Vec<String>> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(results.len(), 2);
+        let mut first = results[0].clone();
+        first.sort();
+        assert_eq!(first, vec!["apple", "apply", "apt"]);
+        assert_eq!(results[1], vec!["banana"]);
+    }
+
+    #[tokio::test]
+    async fn test_batch_search_within_distance() {
+        let res = build_app(test_state())
+            .oneshot(
+                Request::post("/batch/search_within_distance")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"words":["aple","bananaa"],"dist":1}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = res.into_body().collect().await.unwrap().to_bytes();
+        let results: Vec<Vec<String>> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results[0].contains(&"apple".to_string()));
+        assert!(results[1].contains(&"banana".to_string()));
     }
 }

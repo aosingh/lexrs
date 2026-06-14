@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::error::LexError;
 use crate::node::Node;
 use crate::trie::{search_within_distance_inner, words_with_wildcard};
+use rayon::prelude::*;
 use crate::utils::{read_lines_from_file, validate_expression};
 
 /// Directed Acyclic Word Graph (DAWG) — a minimized Trie that compresses
@@ -284,6 +285,44 @@ impl Dawg {
             );
         }
         results
+    }
+
+    // ── batch ─────────────────────────────────────────────────────────────────
+
+    /// Check membership for a slice of words in parallel.
+    pub fn batch_contains<S: AsRef<str> + Sync>(&self, words: &[S]) -> Vec<bool> {
+        words.par_iter().map(|w| self.contains(w.as_ref())).collect()
+    }
+
+    /// Run wildcard search for each pattern in parallel.
+    pub fn batch_search<S: AsRef<str> + Sync>(
+        &self,
+        patterns: &[S],
+    ) -> Result<Vec<Vec<String>>, LexError> {
+        patterns
+            .par_iter()
+            .map(|p| self.search(p.as_ref()))
+            .collect()
+    }
+
+    /// Run prefix search for each prefix in parallel.
+    pub fn batch_search_with_prefix<S: AsRef<str> + Sync>(&self, prefixes: &[S]) -> Vec<Vec<String>> {
+        prefixes
+            .par_iter()
+            .map(|p| self.search_with_prefix(p.as_ref()))
+            .collect()
+    }
+
+    /// Run Levenshtein search for each word in parallel.
+    pub fn batch_search_within_distance<S: AsRef<str> + Sync>(
+        &self,
+        words: &[S],
+        dist: usize,
+    ) -> Vec<Vec<String>> {
+        words
+            .par_iter()
+            .map(|w| self.search_within_distance(w.as_ref(), dist))
+            .collect()
     }
 }
 

@@ -6,7 +6,7 @@ Add `lexrs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lexrs = "0.2"
+lexrs = "1.0"
 ```
 
 ---
@@ -154,6 +154,29 @@ dawg.search_with_prefix("app");               // ["apple", "apply"]
 dawg.search_within_distance("aple", 1);       // ["apple"]
 dawg.search_within_distance_count("aple", 1); // [("apple", 1)]
 ```
+
+---
+
+## Batch operations
+
+All four search operations have a batch variant that processes a slice of inputs in parallel using Rayon. Results are returned in the same order as the input.
+
+```rust
+let words = vec!["apple", "cherry", "apt"];
+trie.batch_contains(&words);
+// → [true, false, true]
+
+trie.batch_search(&["ap*", "b*"]).unwrap();
+// → [["apple", "apply", "apt"], ["banana"]]
+
+trie.batch_search_with_prefix(&["app", "ban"]);
+// → [["apple", "apply"], ["banana"]]
+
+trie.batch_search_within_distance(&["aple", "bannana"], 1);
+// → [["apple"], ["banana"]]
+```
+
+The methods accept any `S: AsRef<str> + Sync`, so `&[&str]`, `&[String]`, and `Vec<String>` all work. `batch_search` returns `Result<Vec<Vec<String>>, LexError>` and fails on the first invalid pattern.
 
 ---
 

@@ -1,5 +1,5 @@
 """
-Three-way genome benchmark summary: lexpy vs lexrs vs Pure Rust.
+Three-way genome benchmark summary: lexpy vs pylexrs vs lexrs.
 
 Runs both benchmarks, parses their timing output, and prints a single
 side-by-side table with speedup columns.
@@ -124,12 +124,12 @@ ROWS = [
 # ── main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("\nRunning Python benchmark (lexpy + lexrs)...", flush=True)
+    print("\nRunning Python benchmark (lexpy + pylexrs)...", flush=True)
     t0 = time.perf_counter()
     py_out = run([sys.executable, "benchmarks/benchmark_genome.py"])
     print(f"  done in {time.perf_counter()-t0:.0f}s")
 
-    print("Running Rust benchmark (pure Rust)...", flush=True)
+    print("Running Rust benchmark (lexrs)...", flush=True)
     t0 = time.perf_counter()
     rs_out = run(["cargo", "run", "--release", "--bin", "genome_bench", "--quiet"])
     print(f"  done in {time.perf_counter()-t0:.0f}s")
@@ -140,21 +140,21 @@ if __name__ == "__main__":
     W = 88
     print(f"\n{'═'*W}")
     print(f"  {'GENOME BENCHMARK — THREE-WAY COMPARISON':^{W-4}}")
-    print(f"  {'lexpy (Pure Python)  vs  lexrs (Rust+PyO3)  vs  Pure Rust':^{W-4}}")
+    print(f"  {'lexpy (Pure Python)  vs  pylexrs (Rust+PyO3)  vs  lexrs (Pure Rust)':^{W-4}}")
     print(f"{'═'*W}")
-    hdr = (f"  {'Scenario':<24}  {'lexpy':>10}  {'lexrs':>10}  {'Pure Rust':>10}"
-           f"  {'Rust/lexpy':>12}  {'Rust/lexrs':>12}")
+    hdr = (f"  {'Scenario':<24}  {'lexpy':>10}  {'pylexrs':>10}  {'lexrs':>10}"
+           f"  {'lexrs/lexpy':>12}  {'lexrs/pylexrs':>13}")
     print(hdr)
     print(f"  {'-'*(W-4)}")
 
     for display, snum, py_lbl, rs_lbl in ROWS:
-        lexpy_ms, lexrs_ms = find_py(py_data, snum, py_lbl)
-        rust_ms             = find_rs(rs_data, snum, rs_lbl)
-        print(f"  {display:<24}  {fmt(lexpy_ms):>10}  {fmt(lexrs_ms):>10}"
+        lexpy_ms, pylexrs_ms = find_py(py_data, snum, py_lbl)
+        rust_ms              = find_rs(rs_data, snum, rs_lbl)
+        print(f"  {display:<24}  {fmt(lexpy_ms):>10}  {fmt(pylexrs_ms):>10}"
               f"  {fmt(rust_ms):>10}"
               f"  {sx(lexpy_ms, rust_ms):>12}"
-              f"  {sx(lexrs_ms, rust_ms):>12}")
+              f"  {sx(pylexrs_ms, rust_ms):>13}")
 
     print(f"{'═'*W}")
-    print(f"  Speedup: Pure Rust ÷ lexpy  and  Pure Rust ÷ lexrs  (higher = Rust faster)")
+    print(f"  Speedup: lexrs ÷ lexpy  and  lexrs ÷ pylexrs  (higher = lexrs faster)")
     print()
