@@ -77,7 +77,7 @@ Both `Trie` and `DAWG` expose the same API:
 | `word_count()` | Number of words stored |
 | `node_count()` | Number of nodes in the structure |
 
-**Batch APIs** (Python only — parallel via Rayon, results in input order):
+**Batch APIs** (parallel via Rayon, results in input order):
 
 | Method | Description |
 |---|---|
