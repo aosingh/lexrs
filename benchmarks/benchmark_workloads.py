@@ -125,7 +125,7 @@ def scenario_autocomplete(py_trie, rs_trie, py_dawg, rs_dawg):
 
     for label, py_s, rs_s in [("Trie", py_trie, rs_trie), ("DAWG", py_dawg, rs_dawg)]:
         py_t, py_r = bench(lambda s=py_s: [s.search_with_prefix(p) for p in prefixes])
-        rs_t, rs_r = bench(lambda s=rs_s: [s.search_with_prefix(p) for p in prefixes])
+        rs_t, rs_r = bench(lambda s=rs_s: s.batch_search_with_prefix(prefixes))
         total = sum(len(x) for x in py_r)
         row(label, py_t, rs_t, f"{total:,} results total")
 
@@ -138,7 +138,7 @@ def scenario_spellcheck(py_trie, rs_trie, py_dawg, rs_dawg):
 
     for label, py_s, rs_s in [("Trie", py_trie, rs_trie), ("DAWG", py_dawg, rs_dawg)]:
         py_t, py_r = bench(lambda s=py_s: [s.search_within_distance(w, 2) for w in typos])
-        rs_t, _    = bench(lambda s=rs_s: [s.search_within_distance(w, 2) for w in typos])
+        rs_t, _    = bench(lambda s=rs_s: s.batch_search_within_distance(typos, 2))
         total = sum(len(x) for x in py_r)
         row(label, py_t, rs_t, f"{len(typos)} queries → {total:,} suggestions")
 
@@ -160,7 +160,7 @@ def scenario_patterns(py_trie, rs_trie, py_dawg, rs_dawg):
 
     for label, py_s, rs_s in [("Trie", py_trie, rs_trie), ("DAWG", py_dawg, rs_dawg)]:
         py_t, py_r = bench(lambda s=py_s: [s.search(p) for p, _ in patterns])
-        rs_t, _    = bench(lambda s=rs_s: [s.search(p) for p, _ in patterns])
+        rs_t, _    = bench(lambda s=rs_s: s.batch_search([p for p, _ in patterns]))
         total = sum(len(x) for x in py_r)
         row(label, py_t, rs_t, f"{len(patterns)} patterns → {total:,} results")
 

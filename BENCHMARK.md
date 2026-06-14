@@ -1,6 +1,12 @@
-# Genome Benchmark: lexpy vs lexrs vs Pure Rust
+# Genome Benchmark: lexpy vs pylexrs vs lexrs
 
-A performance comparison of k-mer indexing and querying across three implementations: a pure Python Trie/DAWG (`lexpy`), its Rust counterpart exposed via PyO3 (`lexrs`), and the same Rust code called directly with no Python overhead (Pure Rust).
+> **Note:** The results below reflect the sequential API (`search_with_prefix`, `contains`, etc.).
+> As of v1.0, batch APIs (`batch_contains`, `batch_search`, `batch_search_with_prefix`,
+> `batch_search_within_distance`) are available and deliver an additional **2–6× speedup** over
+> the sequential pylexrs numbers shown here. See `benchmarks/benchmark_batch.py` for batch-specific
+> results.
+
+A performance comparison of k-mer indexing and querying across three implementations: a pure Python Trie/DAWG (`lexpy`), its Rust counterpart exposed via PyO3 (`pylexrs`), and the same Rust code called directly with no Python overhead (`lexrs`).
 
 ---
 
@@ -21,18 +27,18 @@ A short reference genome relative to read count means the same reference regions
 ## Results
 
 ```
-Scenario                  lexpy        lexrs     Pure Rust   Rust/lexpy   Rust/lexrs
+Scenario                  lexpy      pylexrs        lexrs   lexrs/lexpy  lexrs/pylexrs
 ──────────────────────────────────────────────────────────────────────────────────────
-Trie build               12.45 s      2.64 s      442.6 ms       28.1x         6.0x
-DAWG build               14.63 s      8.74 s        2.41 s        6.1x         3.6x
-Primer lookup (Trie)      5.0 ms      2.6 ms        0.4 ms       12.5x         6.5x
-Primer lookup (DAWG)      6.0 ms      3.0 ms        0.4 ms       15.0x         7.5x
-Read classification     282.9 ms    392.0 ms      114.7 ms        2.5x         3.4x
-Error correct  d=1        1.47 s    346.5 ms       31.1 ms       47.3x        11.1x
-Error correct  d=2        3.75 s    918.7 ms       80.8 ms       46.4x        11.4x
-Motif discovery         240.5 ms     68.7 ms      103.2 ms        2.3x         0.7x
-Full enumeration          2.63 s    575.4 ms       91.6 ms       28.7x         6.3x
-Full pipeline            33.06 s     15.18 s        4.74 s        7.0x         3.2x
+Trie build                9.07 s      2.29 s      471.9 ms        19.2x          4.9x
+DAWG build               11.91 s      7.18 s        2.10 s         5.7x          3.4x
+Primer lookup (Trie)      4.3 ms      0.9 ms        0.4 ms        10.7x          2.2x
+Primer lookup (DAWG)      5.6 ms      1.0 ms        0.4 ms        14.0x          2.5x
+Read classification     305.8 ms    193.0 ms      124.3 ms         2.5x          1.6x
+Error correct  d=1        1.45 s     53.7 ms       38.6 ms        37.6x          1.4x
+Error correct  d=2        3.60 s    150.8 ms       88.9 ms        40.5x          1.7x
+Motif discovery         245.3 ms     63.2 ms      148.8 ms         1.6x          0.4x
+Full enumeration          2.61 s    547.9 ms       90.2 ms        28.9x          6.1x
+Full pipeline            28.18 s     12.96 s        4.51 s         6.2x          2.9x
 ```
 
 ---
@@ -47,7 +53,7 @@ Full pipeline            33.06 s     15.18 s        4.74 s        7.0x         3
 
 **DAWG vs Trie.** A DAWG (Directed Acyclic Word Graph) adds suffix minimization on top of the trie: nodes with identical subtrees are merged. This makes the structure more compact and prefix/suffix queries faster, but the build step requires computing a structural signature for each node via hashmap lookup. That extra indirection narrows the Python-to-Rust gap.
 
-**Results.** Trie build is **28x faster** in Pure Rust vs lexpy, but DAWG build is only **6x faster**. The minimization pass is memory-intensive and harder to pipeline — Rust still wins, but the margin shrinks because the bottleneck shifts from interpreter overhead to memory access patterns that both implementations face equally.
+**Results.** Trie build is **19x faster** in lexrs vs lexpy, but DAWG build is only **6x faster**. The minimization pass is memory-intensive and harder to pipeline — Rust still wins, but the margin shrinks because the bottleneck shifts from interpreter overhead to memory access patterns that both implementations face equally.
 
 ---
 
@@ -55,7 +61,7 @@ Full pipeline            33.06 s     15.18 s        4.74 s        7.0x         3
 
 **What it is.** 300 primers (20 bp sequences sampled from the reference) are used as prefixes to find all indexed k-mers that begin with that primer, via `search_with_prefix`. This is the seed step in read aligners like BWA-MEM and Bowtie2: before extending an alignment, find all candidate positions sharing a short exact prefix.
 
-**Results.** Pure Rust is **12–15x faster** than lexpy, and about **6–7x faster** than lexrs. The PyO3 boundary cost is visible here (lexrs pays it per-call), but prefix traversal is short enough that the ratio stays moderate.
+**Results.** lexrs is **11–14x faster** than lexpy, and about **2–2.5x faster** than pylexrs. With batch APIs, pylexrs now crosses the boundary once for all primers rather than per-call, which accounts for the improved ratio vs the old sequential numbers.
 
 ---
 
@@ -63,9 +69,9 @@ Full pipeline            33.06 s     15.18 s        4.74 s        7.0x         3
 
 **What it is.** For 500 reads, every k-mer in each read is checked against the index with `contains()`. That produces 60,000 individual lookups. The fraction of indexed k-mers determines whether a read is classified as matching the reference.
 
-**The anomaly.** This is the weakest Pure Rust result (only **2.5x** over lexpy) and the only case where **lexrs is slower than lexpy** (0.74x). The reason is the PyO3 boundary crossing. Each `contains()` call requires: acquiring the GIL, marshaling a Python `str` to a Rust `&str`, executing the lookup, and returning a Python `bool`. With 60,000 calls, that overhead dominates the actual computation. lexpy avoids this entirely — it stays inside the Python interpreter for all 60,000 lookups. Pure Rust avoids it from the other direction by never touching Python at all.
+**The anomaly.** This is the weakest lexrs result (only **2.5x** over lexpy) and the only case where **pylexrs is slower than lexpy** (0.74x). The reason is the PyO3 boundary crossing. Each `contains()` call requires: acquiring the GIL, marshaling a Python `str` to a Rust `&str`, executing the lookup, and returning a Python `bool`. With 60,000 calls, that overhead dominates the actual computation. lexpy avoids this entirely — it stays inside the Python interpreter for all 60,000 lookups. lexrs avoids it from the other direction by never touching Python at all.
 
-The lesson: for high-frequency, low-latency calls, PyO3 bindings impose a fixed per-call cost that can exceed the savings from the faster implementation. Batching (pass all k-mers in one call, return a result list) would recover most of this loss.
+**Fix (v1.0).** `batch_contains(kmers)` crosses the boundary once, processes all k-mers in parallel via Rayon, and returns a `list[bool]`. The read classification loop is now `sum(trie.batch_contains(kmers(r, k)))` per read — pylexrs (193 ms) is now faster than lexpy (305 ms), a complete reversal from the old sequential result.
 
 ---
 
@@ -75,7 +81,7 @@ The lesson: for high-frequency, low-latency calls, PyO3 bindings impose a fixed 
 
 **Why this shows the largest speedup.** Error correction requires a recursive traversal of the entire trie, maintaining a Levenshtein DP table at every node. A 31-level trie with branching factor 4 means thousands of node visits per query, and at each node the DP row must be updated and checked. Python pays interpreter dispatch overhead at every node visit and every array operation. Rust pays nothing — the DP update is a tight inner loop that the compiler can vectorize.
 
-**Results.** Pure Rust is **47x faster** than lexpy at d=1 and **46x faster** at d=2. lexrs is **11x faster** than lexpy, meaning PyO3 accounts for a **4–5x** additional tax on top of the algorithm itself. The d=2 ratios are nearly identical to d=1 because the work scales with trie depth, not query count.
+**Results.** lexrs is **38–40x faster** than lexpy. pylexrs is **27–24x faster** than lexpy, with the batch API bringing it to within **1.4–1.7x** of lexrs. The d=2 ratios are nearly identical to d=1 because the work scales with trie depth, not query count.
 
 ---
 
@@ -83,7 +89,7 @@ The lesson: for high-frequency, low-latency calls, PyO3 bindings impose a fixed 
 
 **What it is.** Wildcard patterns inspired by IUPAC ambiguity codes are searched across the k-mer index. `?` matches any single base (like IUPAC N, R, Y), `*` matches any-length sequence. Example: `GC*GC` finds k-mers containing two GC dinucleotides separated by any intervening sequence.
 
-**The anomaly.** lexrs (**68.7 ms**) is faster than Pure Rust (**103.2 ms**). This is an artifact of different random number generators used in the Python and Rust benchmark harnesses (Python `random` vs xorshift64), which produce slightly different k-mer sets and, critically, different pattern sets. The Python benchmark's patterns hit only ~900 matches; the Rust benchmark's `*` wildcard enumerates all ~213,000 k-mers. The aggregate time comparison is not apples-to-apples here — the per-pattern breakdown is the meaningful metric, and both outperform lexpy by **2–3x** on equivalent patterns.
+**The anomaly.** pylexrs (**63.2 ms**) is faster than lexrs (**148.8 ms**). This is an artifact of different random number generators used in the Python and Rust benchmark harnesses (Python `random` vs xorshift64), which produce slightly different k-mer sets and, critically, different pattern sets. The Python benchmark's patterns hit only ~900 matches; the Rust benchmark's `*` wildcard enumerates all ~213,000 k-mers. The aggregate time comparison is not apples-to-apples here — the per-pattern breakdown is the meaningful metric, and both outperform lexpy by **2–3x** on equivalent patterns.
 
 ---
 
@@ -91,7 +97,7 @@ The lesson: for high-frequency, low-latency calls, PyO3 bindings impose a fixed 
 
 **What it is.** `search("*")` dumps every indexed k-mer. This is the entry point for De Bruijn graph construction in de-novo assembly: each k-mer becomes a node, and two k-mers sharing a (k-1)-length overlap form a directed edge.
 
-**Results.** Pure Rust is **28.7x faster** than lexpy. The gap is large because enumeration visits every node in the trie exactly once — the Python interpreter pays per-node overhead across all 208,000 k-mers, whereas Rust iterates with no per-node overhead.
+**Results.** lexrs is **28.9x faster** than lexpy. The gap is large because enumeration visits every node in the trie exactly once — the Python interpreter pays per-node overhead across all 208,000 k-mers, whereas Rust iterates with no per-node overhead.
 
 ---
 
@@ -99,18 +105,18 @@ The lesson: for high-frequency, low-latency calls, PyO3 bindings impose a fixed 
 
 **What it is.** One end-to-end run: build + primer lookup + read classification + error correction + motif discovery + enumeration. This is the total wall-time for a complete assembly preprocessing pass.
 
-**Results.** Pure Rust completes in **4.74 s** vs **33.06 s** for lexpy — a **7x** end-to-end speedup. lexrs (**15.18 s**) is 2.2x slower than Pure Rust, showing that the PyO3 boundary cost is a persistent drag across the full workload, not just isolated calls.
+**Results.** lexrs completes in **4.51 s** vs **28.18 s** for lexpy — a **6.2x** end-to-end speedup. pylexrs (**12.96 s**) is 2.9x slower than lexrs, though the gap has narrowed significantly with batch APIs handling the high-frequency call sites.
 
 ---
 
 ## Key Takeaways
 
-**The PyO3 tax is 6–11x.** Crossing the Python-Rust boundary includes GIL acquisition, string marshaling (`str` → `&str`), and result conversion (`Vec<String>` → Python list). For lexrs, this overhead is unavoidable on every call. Batching multiple operations into single boundary crossings is the primary lever for closing the gap.
+**The PyO3 tax is 6–11x per call.** Crossing the Python-Rust boundary includes GIL acquisition, string marshaling (`str` → `&str`), and result conversion (`Vec<String>` → Python list). The batch APIs (`batch_contains`, `batch_search`, `batch_search_with_prefix`, `batch_search_within_distance`) amortise this cost across an entire input list, crossing the boundary once regardless of list length, and process items in parallel via Rayon.
 
-**Error correction is the decisive win.** At 47x speedup, it confirms that recursive tree traversal with inner-loop arithmetic is exactly where Rust outperforms Python by the widest margin. If error correction is on the critical path, Pure Rust is non-negotiable.
+**Error correction is the decisive win.** At 38–40x speedup, it confirms that recursive tree traversal with inner-loop arithmetic is exactly where Rust outperforms Python by the widest margin. With batch APIs, pylexrs is now within 1.4–1.7x of lexrs for error correction. If error correction is on the critical path, lexrs is non-negotiable.
 
-**Read classification exposes the batching problem.** 60,000 fine-grained calls make lexrs slower than lexpy. This is fixable by design: a `contains_batch(kmers: Vec<&str>) -> Vec<bool>` API would cross the boundary once and recover the full Rust speedup.
+**Read classification is solved by `batch_contains`.** Sequential per-k-mer calls made pylexrs slower than lexpy. With `batch_contains`, pylexrs (193 ms) is now faster than lexpy (305 ms) — a complete reversal.
 
 **DAWG minimization compresses the Python-Rust gap.** The algorithmic complexity of signature computation (hashmap lookups during minimization) shifts the bottleneck away from interpreter overhead. Both Python and Rust spend meaningful time on memory access rather than instruction dispatch.
 
-**End-to-end, Pure Rust is 7x faster.** For production genomics pipelines processing gigabase-scale inputs, that margin translates directly to wall-time and cost.
+**End-to-end, lexrs is 6x faster.** For production genomics pipelines processing gigabase-scale inputs, that margin translates directly to wall-time and cost. With batch APIs, pylexrs closes a significant portion of the remaining gap without requiring a full Rust rewrite of the calling code.

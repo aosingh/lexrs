@@ -155,6 +155,39 @@ impl PyTrie {
                 .into())
         }
     }
+
+    // ── batch ─────────────────────────────────────────────────────────────────
+
+    /// Check membership for a list of words in parallel.
+    ///
+    /// Returns ``list[bool]`` in the same order as the input.
+    fn batch_contains(&self, words: Vec<String>) -> Vec<bool> {
+        self.inner.batch_contains(&words)
+    }
+
+    /// Run wildcard search for each pattern in parallel.
+    ///
+    /// Returns ``list[list[str]]`` in the same order as the input.
+    fn batch_search(&self, patterns: Vec<String>) -> PyResult<Vec<Vec<String>>> {
+        self.inner
+            .batch_search(&patterns)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Run prefix search for each prefix in parallel.
+    ///
+    /// Returns ``list[list[str]]`` in the same order as the input.
+    fn batch_search_with_prefix(&self, prefixes: Vec<String>) -> Vec<Vec<String>> {
+        self.inner.batch_search_with_prefix(&prefixes)
+    }
+
+    /// Run Levenshtein search for each word in parallel.
+    ///
+    /// Returns ``list[list[str]]`` in the same order as the input.
+    #[pyo3(signature = (words, dist=0))]
+    fn batch_search_within_distance(&self, words: Vec<String>, dist: usize) -> Vec<Vec<String>> {
+        self.inner.batch_search_within_distance(&words, dist)
+    }
 }
 
 // ── DAWG ─────────────────────────────────────────────────────────────────────
@@ -320,6 +353,39 @@ impl PyDAWG {
                 .into_pyobject(py)?
                 .into())
         }
+    }
+
+    // ── batch ─────────────────────────────────────────────────────────────────
+
+    /// Check membership for a list of words in parallel.
+    ///
+    /// Returns ``list[bool]`` in the same order as the input.
+    fn batch_contains(&self, words: Vec<String>) -> Vec<bool> {
+        self.inner.batch_contains(&words)
+    }
+
+    /// Run wildcard search for each pattern in parallel.
+    ///
+    /// Returns ``list[list[str]]`` in the same order as the input.
+    fn batch_search(&self, patterns: Vec<String>) -> PyResult<Vec<Vec<String>>> {
+        self.inner
+            .batch_search(&patterns)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Run prefix search for each prefix in parallel.
+    ///
+    /// Returns ``list[list[str]]`` in the same order as the input.
+    fn batch_search_with_prefix(&self, prefixes: Vec<String>) -> Vec<Vec<String>> {
+        self.inner.batch_search_with_prefix(&prefixes)
+    }
+
+    /// Run Levenshtein search for each word in parallel.
+    ///
+    /// Returns ``list[list[str]]`` in the same order as the input.
+    #[pyo3(signature = (words, dist=0))]
+    fn batch_search_within_distance(&self, words: Vec<String>, dist: usize) -> Vec<Vec<String>> {
+        self.inner.batch_search_within_distance(&words, dist)
     }
 }
 

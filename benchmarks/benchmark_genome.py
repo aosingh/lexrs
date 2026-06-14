@@ -228,7 +228,7 @@ section(
 )
 for label, py_s, rs_s in [("Trie", py_trie, rs_trie), ("DAWG", py_dawg, rs_dawg)]:
     py_t, py_r = bench(lambda s=py_s: [s.search_with_prefix(p) for p in PRIMERS])
-    rs_t, _    = bench(lambda s=rs_s: [s.search_with_prefix(p) for p in PRIMERS])
+    rs_t, _    = bench(lambda s=rs_s: s.batch_search_with_prefix(PRIMERS))
     total = sum(len(x) for x in py_r)
     avg   = total // len(PRIMERS)
     row(label, py_t, rs_t, f"{total:,} hits  (~{avg} per primer)")
@@ -245,7 +245,7 @@ for label, py_s, rs_s in [("Trie", py_trie, rs_trie), ("DAWG", py_dawg, rs_dawg)
         sum(1 for km in kmers(r, K) if km in s) for r in CLASSIFY_READS
     ])
     rs_t, _    = bench(lambda s=rs_s: [
-        sum(1 for km in kmers(r, K) if km in s) for r in CLASSIFY_READS
+        sum(s.batch_contains(kmers(r, K))) for r in CLASSIFY_READS
     ])
     total_hits = sum(py_r)
     row(label, py_t, rs_t,
@@ -259,7 +259,7 @@ section(
 )
 for label, py_s, rs_s in [("Trie", py_trie, rs_trie), ("DAWG", py_dawg, rs_dawg)]:
     py_t, py_r = bench(lambda s=py_s: [s.search_within_distance(c, 1) for c in CORRUPTED_D1])
-    rs_t, _    = bench(lambda s=rs_s: [s.search_within_distance(c, 1) for c in CORRUPTED_D1])
+    rs_t, _    = bench(lambda s=rs_s: s.batch_search_within_distance(CORRUPTED_D1, 1))
     total = sum(len(x) for x in py_r)
     row(label, py_t, rs_t, f"{total:,} correction candidates  ({NUM_CORR_D1} queries)")
 
@@ -274,7 +274,7 @@ for label, py_s, rs_s in [("Trie", py_trie, rs_trie), ("DAWG", py_dawg, rs_dawg)
         lambda s=py_s: [s.search_within_distance(c, 2) for c in CORRUPTED_D2],
         limit_s=TIMEOUT_S,
     )
-    rs_t, rs_r = bench(lambda s=rs_s: [s.search_within_distance(c, 2) for c in CORRUPTED_D2])
+    rs_t, rs_r = bench(lambda s=rs_s: s.batch_search_within_distance(CORRUPTED_D2, 2))
     total = sum(len(x) for x in rs_r)
     note  = f"{total:,} candidates  ({NUM_CORR_D2} queries)"
     if py_t is None: note += f"  ← lexpy exceeded {TIMEOUT_S}s"
@@ -288,7 +288,7 @@ section(
 )
 for label, py_s, rs_s in [("Trie", py_trie, rs_trie), ("DAWG", py_dawg, rs_dawg)]:
     py_t, py_r = bench_timed(lambda s=py_s: [s.search(p) for p, _ in MOTIFS], limit_s=TIMEOUT_S)
-    rs_t, rs_r = bench(lambda s=rs_s: [s.search(p) for p, _ in MOTIFS])
+    rs_t, rs_r = bench(lambda s=rs_s: s.batch_search([p for p, _ in MOTIFS]))
     total = sum(len(x) for x in rs_r)
     note  = f"{len(MOTIFS)} patterns → {total:,} hits"
     if py_t is None: note += f"  ← lexpy exceeded {TIMEOUT_S}s"
@@ -321,23 +321,26 @@ section(
     "Total wall-time for a complete assembly preprocessing pass",
 )
 
-def run_pipeline(build_trie, build_dawg):
-    # build
+def run_pipeline_py(build_trie, build_dawg):
     t = build_trie(); t.add_all(UNIQUE_KMERS)
     d = build_dawg(); d.add_all(UNIQUE_KMERS)
-    # primer lookup
     [t.search_with_prefix(p) for p in PRIMERS]
-    # read classification
     [sum(1 for km in kmers(r, K) if km in t) for r in CLASSIFY_READS]
-    # error correction d=1
     [t.search_within_distance(c, 1) for c in CORRUPTED_D1]
-    # motif discovery
-    [t.search(pat) for pat, _ in MOTIFS if "*" not in pat]  # skip open-ended *
-    # full enumeration
+    [t.search(pat) for pat, _ in MOTIFS if "*" not in pat]
     t.search("*")
 
-py_t, _ = bench(lambda: run_pipeline(PyTrie, PyDAWG), repeat=1)
-rs_t, _ = bench(lambda: run_pipeline(RsTrie, RsDAWG), repeat=1)
+def run_pipeline_rs(build_trie, build_dawg):
+    t = build_trie(); t.add_all(UNIQUE_KMERS)
+    d = build_dawg(); d.add_all(UNIQUE_KMERS)
+    t.batch_search_with_prefix(PRIMERS)
+    [sum(t.batch_contains(kmers(r, K))) for r in CLASSIFY_READS]
+    t.batch_search_within_distance(CORRUPTED_D1, 1)
+    t.batch_search([pat for pat, _ in MOTIFS if "*" not in pat])
+    t.search("*")
+
+py_t, _ = bench(lambda: run_pipeline_py(PyTrie, PyDAWG), repeat=1)
+rs_t, _ = bench(lambda: run_pipeline_rs(RsTrie, RsDAWG), repeat=1)
 row("Trie+DAWG", py_t, rs_t, "end-to-end preprocessing pass")
 
 print()

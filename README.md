@@ -14,6 +14,7 @@ A Rust library implementing two efficient lexicon data structures — **Trie** a
 - [Rust usage](#rust-usage)
 - [Python usage](#python-usage)
   - [API](#api)
+  - [Batch APIs](#batch-apis)
   - [Wildcard syntax](#wildcard-syntax)
 - [Production HTTP server](#production-http-server)
 - [Running tests](#running-tests)
@@ -27,7 +28,7 @@ A Rust library implementing two efficient lexicon data structures — **Trie** a
 
 ```toml
 [dependencies]
-lexrs = "0.2"
+lexrs = "1.0"
 ```
 
 **Python package**:
@@ -76,12 +77,21 @@ Both `Trie` and `DAWG` expose the same API:
 | `word_count()` | Number of words stored |
 | `node_count()` | Number of nodes in the structure |
 
+**Batch APIs** (Python only — parallel via Rayon, results in input order):
+
+| Method | Description |
+|---|---|
+| `batch_contains(words)` | Membership test for a list of words → `list[bool]` |
+| `batch_search(patterns)` | Wildcard search for a list of patterns → `list[list[str]]` |
+| `batch_search_with_prefix(prefixes)` | Prefix search for a list of prefixes → `list[list[str]]` |
+| `batch_search_within_distance(words, dist)` | Fuzzy search for a list of words → `list[list[str]]` |
+
 ## Rust usage
 
 ```toml
 # Cargo.toml
 [dependencies]
-lexrs = "0.2"
+lexrs = "1.0"
 ```
 
 ```rust
@@ -146,6 +156,28 @@ d.add_all(["apple", "apply", "apt"])   # sorted automatically
 d.search("ap*")            # wildcard
 d.search_within_distance("aple", dist=1)
 ```
+
+### Batch APIs
+
+Batch methods process a list of inputs in one call, running all items in parallel via Rayon. They avoid repeated FFI boundary crossings and deliver **2–6× speedup** over a Python loop calling the single-item equivalents.
+
+```python
+words = ["apple", "apply", "cherry", "apt"]
+
+t.batch_contains(words)
+# [True, True, False, True]
+
+t.batch_search(["ap*", "b*", "xyz*"])
+# [["apple", "apply", "apt"], ["banana"], []]
+
+t.batch_search_with_prefix(["app", "ban"])
+# [["apple", "apply"], ["banana"]]
+
+t.batch_search_within_distance(["aple", "bannana"], dist=1)
+# [["apple"], ["banana"]]
+```
+
+Results are always returned in the same order as the input list. An unmatched pattern or prefix returns an empty inner list. `dist` defaults to `0`.
 
 ### Wildcard syntax
 
@@ -242,8 +274,7 @@ tests/
 |---|---|
 | [lexrs-server/](https://github.com/aosingh/lexrs/tree/main/lexrs-server) | Production HTTP server — a **writer** binary for word ingestion and compaction, and a **reader** binary for search. Readers scale horizontally and hot-reload snapshots via Consul. |
 | [docker/](https://github.com/aosingh/lexrs/tree/main/docker) | Docker Compose setup running the full stack: Consul, writer, two reader replicas, and an nginx reverse proxy that routes reads and writes to the right service. |
-| [lexpy-shim/](https://github.com/aosingh/lexrs/tree/main/lexpy-shim) | Source for `lexpy==2.x` — a one-file compatibility shim that re-exports `lexrs` so existing `lexpy` users can upgrade without changing their imports. |
-| [benchmarks/](https://github.com/aosingh/lexrs/tree/main/benchmarks) | Python scripts comparing `lexrs` against `lexpy` (pure Python) across insertion, prefix, wildcard, and Levenshtein workloads. |
+| [benchmarks/](https://github.com/aosingh/lexrs/tree/main/benchmarks) | Python scripts comparing `pylexrs` against `lexpy` (pure Python) across insertion, prefix, wildcard, Levenshtein, and batch workloads. |
 | [tests/](https://github.com/aosingh/lexrs/tree/main/tests) | Integration tests — `pytest` suite for the Python API and Rust-level integration tests. |
 
 ## License
