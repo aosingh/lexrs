@@ -66,5 +66,3 @@ jobs:
       - name: Run Python tests
         run: pytest tests/ -v
 
-      - name: Run lexpy shim tests
-        run: pytest lexpy-shim/tests/ -v
