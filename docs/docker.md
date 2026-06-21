@@ -48,6 +48,20 @@ reader-2 | lexrs-reader listening on http://0.0.0.0:3001
 nginx    | ... ready
 ```
 
+On subsequent starts (after data has been compacted), the writer and readers recover from the snapshot volume:
+
+```
+writer   | [startup] resuming from snapshot v3, Trie empty
+reader-1 | Loading initial snapshot from /snapshots/snapshot_3.txt
+reader-2 | Loading initial snapshot from /snapshots/snapshot_3.txt
+```
+
+If Consul restarted and its KV is empty, the writer falls back to `latest.json` on disk and re-publishes to Consul:
+
+```
+writer   | [startup] Consul empty, resuming from disk snapshot v3
+```
+
 ---
 
 ## What is running
@@ -70,7 +84,7 @@ your machine :80
 
 **Consul** runs in dev mode on port 8500. It holds two things: service registrations (so Consul knows which instances are healthy) and a single KV entry (`lexrs/snapshot`) that the writer updates after every compaction and the readers watch via long-poll.
 
-**The shared volume** (`snapshots`) is mounted into both the writer and readers. The writer writes snapshot files there; readers read from it. They never talk to each other directly.
+**The shared volume** (`snapshots`) is mounted into both the writer and readers. The writer writes snapshot files and a `latest.json` file there; readers read from it. They never talk to each other directly. `latest.json` is the fallback source of truth — if Consul restarts and loses its KV data, the writer and readers recover their state from `latest.json` on startup.
 
 **nginx** routes by URL path. Write endpoints go to the writer; read endpoints are distributed round-robin across all healthy readers. You don't need to know which reader handled a request — they all serve from the same snapshot.
 
@@ -185,6 +199,15 @@ banana 7
 ```
 
 Words are sorted alphabetically. Counts accumulate across compactions — if you post `apple` again and compact, you'll see `apple 20` in the next version.
+
+After each compaction, `latest.json` is also written to the volume:
+
+```bash
+docker compose exec writer cat /snapshots/latest.json
+# {"version":1,"path":"/snapshots/snapshot_1.txt"}
+```
+
+This file is the fallback for writer and reader startup when Consul KV is unavailable.
 
 ---
 

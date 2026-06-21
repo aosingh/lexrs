@@ -77,7 +77,19 @@ Docker Compose setup for running the full lexrs stack locally or in production.
 consul (healthy) → writer → reader × 2 → nginx
 ```
 
-Consul must pass its health check (`consul members`) before writer or reader start. Writer must be started before readers because readers attempt to pull the latest snapshot on boot. The writer starts with an empty Trie and recovers only its version counter from Consul — no snapshot loading on startup.
+Consul must pass its health check (`consul members`) before writer or reader start. Writer must be started before readers because readers attempt to pull the latest snapshot on boot.
+
+On startup the writer recovers its version counter from Consul KV (`lexrs/snapshot`). If Consul is empty (e.g. after a restart), it falls back to `latest.json` on the shared volume and re-publishes the metadata to Consul. Readers follow the same fallback — Consul first, then `latest.json` — so both services recover their state from disk without losing data.
+
+## Consul restart recovery
+
+The snapshot volume is the durable source of truth. After every compaction the writer atomically writes a `latest.json` file alongside the snapshot files:
+
+```json
+{"version": 3, "path": "/snapshots/snapshot_3.txt"}
+```
+
+If Consul restarts and loses its KV data, restarting the writer and readers is sufficient — they read `latest.json` from disk to recover and the writer re-publishes to Consul so subsequent watch notifications work normally.
 
 ## Nginx routing
 
@@ -143,7 +155,7 @@ curl -X POST http://localhost/batch/search_within_distance \
 
 ## Shared volume
 
-A named Docker volume `snapshots` is mounted at `/snapshots` in both `writer` and `reader` containers. The writer writes snapshot files there; readers read from the same path.
+A named Docker volume `snapshots` is mounted at `/snapshots` in both `writer` and `reader` containers. The writer writes snapshot files and `latest.json` there; readers read from the same path. `latest.json` is the fallback source of truth when Consul KV is empty.
 
 ## Running
 
