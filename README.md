@@ -197,7 +197,7 @@ Consecutive wildcards are normalized (`**` → `*`, `?*` → `*`).
 
 | Binary | Role |
 |---|---|
-| **writer** | Accepts word ingestion (`POST /ingest`), buffers a delta Trie in memory, and periodically compacts it into a versioned snapshot on disk. |
+| **writer** | Accepts word ingestion (`POST /words`), buffers a delta Trie in memory, and periodically compacts it into a versioned snapshot on disk. |
 | **reader** | Loads the latest snapshot into a DAWG and serves all search queries. Multiple readers can run as replicas and hot-reload new snapshots without downtime. |
 
 [Consul](https://www.consul.io/) is used for snapshot version coordination — the writer publishes new snapshot versions to the Consul KV store and readers watch for changes via blocking queries, atomically swapping the in-memory DAWG when a new snapshot arrives.
@@ -216,8 +216,8 @@ Consul ──► writer ──► (snapshots on shared volume)
               └────┬────┘
                    ▼
                  nginx  (port 80)
-                 /ingest  → writer
-                 /search  → readers (round-robin)
+                 /words, /compact  → writer
+                 /search, /prefix, /contains, /batch/*  → readers (round-robin)
 ```
 
 ```bash
@@ -226,22 +226,38 @@ docker compose up -d
 ```
 
 ```bash
-# ingest words
-curl -s -X POST http://localhost/ingest \
+# ingest words with optional per-word counts
+curl -X POST http://localhost/words \
   -H 'Content-Type: application/json' \
-  -d '["apple", "apply", {"word": "application", "count": 5}]'
+  -d '{"words": [{"word": "apple", "count": 10}, {"word": "apply", "count": 3}, "apt"]}'
+
+# flush to snapshot (readers reload within ~30 s)
+curl -X POST http://localhost/compact
 
 # prefix search
-curl -s 'http://localhost/search?prefix=app'
+curl 'http://localhost/prefix?q=app'
 
 # wildcard search
-curl -s 'http://localhost/search?pattern=app*'
+curl 'http://localhost/search?q=app*'
 
 # fuzzy search (Levenshtein distance ≤ 1)
-curl -s 'http://localhost/search?word=aple&dist=1'
+curl 'http://localhost/search?q=aple&dist=1'
+
+# exact lookup
+curl 'http://localhost/contains?q=apple'
+
+# batch membership
+curl -X POST http://localhost/batch/contains \
+  -H 'Content-Type: application/json' \
+  -d '{"words": ["apple", "cherry", "apricot"]}'
+
+# batch prefix
+curl -X POST http://localhost/batch/prefix \
+  -H 'Content-Type: application/json' \
+  -d '{"prefixes": ["app", "ban"]}'
 ```
 
-The writer and reader are built from a single Dockerfile — the `command:` field in Compose selects which binary to start. See [`lexrs-server/README.md`](https://github.com/aosingh/lexrs/blob/main/lexrs-server/README.md) for the full API reference and configuration options.
+The writer and reader are built from a single Dockerfile — the `command:` field in Compose selects which binary to start. See the [server docs](https://aosingh.github.io/lexrs/server) for the full API reference and configuration options.
 
 ## Running tests
 
@@ -257,13 +273,22 @@ pytest tests/
 ## Project structure
 
 ```
-src/
+lexrs/src/
   lib.rs      — public re-exports and Python module registration
   trie.rs     — Trie implementation + wildcard / Levenshtein helpers
   dawg.rs     — DAWG implementation
+  python.rs   — PyO3 bindings (Trie, DAWG, batch APIs)
   node.rs     — shared Node type (arena-allocated)
   utils.rs    — file I/O and pattern normalization
   error.rs    — LexError enum
+lexrs/tests/
+  trie_tests.rs — Rust unit tests for Trie
+  dawg_tests.rs — Rust unit tests for DAWG
+lexrs-server/src/
+  writer.rs   — word ingestion + compaction binary
+  reader.rs   — search server + batch endpoints binary
+  consul.rs   — Consul KV watch / publish helpers
+  snapshot.rs — snapshot file I/O
 tests/
   test_python_api.py — pytest suite for the Python bindings
 ```
