@@ -255,6 +255,7 @@ async fn watch_and_reload(state: Shared) {
             }
         };
 
+        let status = res.status();
         let new_index: u64 = res
             .headers()
             .get("X-Consul-Index")
@@ -262,12 +263,23 @@ async fn watch_and_reload(state: Shared) {
             .and_then(|v| v.parse().ok())
             .unwrap_or(index);
 
-        if new_index <= index {
+        if new_index < index {
+            // Consul restarted — its index went backwards, reset and retry
+            index = 0;
+            continue;
+        }
+
+        if new_index == index {
             // timeout with no change — loop
             continue;
         }
 
         index = new_index;
+
+        if !status.is_success() {
+            // key not yet in Consul (404) — wait for next change
+            continue;
+        }
 
         let body: serde_json::Value = match res.json().await {
             Ok(b) => b,
@@ -373,18 +385,24 @@ async fn main() {
     let consul_addr =
         flag(&args, "--consul").unwrap_or_else(|| env_or("CONSUL_ADDR", "http://consul:8500"));
 
-    // Load latest snapshot from shared volume on startup
-    let initial_dawg = match consul::latest_snapshot_path(&consul_addr).await {
-        Ok(Some(path)) => {
-            println!("Loading initial snapshot from {path}");
-            snapshot::load(&path).await.unwrap_or_else(|e| {
-                eprintln!("Failed to load snapshot: {e}");
+    // Load latest snapshot — Consul first, snapshot dir as fallback
+    let initial_dawg = {
+        let path = match consul::latest_snapshot_path(&consul_addr).await {
+            Ok(Some(p)) => Some(p),
+            _ => snapshot::read_latest(&snapshot_dir).map(|(_, p)| p),
+        };
+        match path {
+            Some(p) => {
+                println!("Loading initial snapshot from {p}");
+                snapshot::load(&p).await.unwrap_or_else(|e| {
+                    eprintln!("Failed to load snapshot: {e}");
+                    Dawg::new()
+                })
+            }
+            None => {
+                println!("No snapshot found, starting with empty DAWG");
                 Dawg::new()
-            })
-        }
-        _ => {
-            println!("No snapshot found, starting with empty DAWG");
-            Dawg::new()
+            }
         }
     };
 

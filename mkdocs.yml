@@ -36,6 +36,9 @@ nav:
   - HTTP Server: server.md
   - Docker Setup: docker.md
 
+extra:
+  version: "dev"
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true

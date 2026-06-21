@@ -170,6 +170,8 @@ async fn run_compact(state: &WriterState) -> Result<u64, String> {
 
     // 3. Announce to readers via Consul KV
     let path = format!("{}/snapshot_{}.txt", state.snapshot_dir, next_version);
+    snapshot::write_latest(&state.snapshot_dir, next_version, &path)
+        .map_err(|e| e.to_string())?;
     consul::put_snapshot(&state.consul_addr, next_version, &path)
         .await
         .map_err(|e| e.to_string())?;
@@ -224,16 +226,25 @@ async fn main() {
         .parse()
         .unwrap_or(60);
 
-    // Recover version counter from Consul — Trie starts empty (holds delta only)
+    // Recover version counter — Consul first, snapshot dir as fallback
     let start_version = match consul::latest_snapshot(&consul_addr).await {
         Ok(Some((version, _))) => {
             println!("[startup] resuming from snapshot v{version}, Trie empty");
             version
         }
-        _ => {
-            println!("[startup] no snapshot found, starting fresh");
-            0
-        }
+        _ => match snapshot::read_latest(&snapshot_dir) {
+            Some((version, path)) => {
+                println!("[startup] Consul empty, resuming from disk snapshot v{version}");
+                if let Err(e) = consul::put_snapshot(&consul_addr, version, &path).await {
+                    eprintln!("[startup] failed to re-publish snapshot to Consul: {e}");
+                }
+                version
+            }
+            None => {
+                println!("[startup] no snapshot found, starting fresh");
+                0
+            }
+        },
     };
 
     // Register with Consul

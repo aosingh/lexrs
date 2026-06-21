@@ -70,6 +70,24 @@ pub async fn merge_and_write(
     Ok(())
 }
 
+/// Write {version, path} to latest.json atomically.
+pub fn write_latest(snapshot_dir: &str, version: u64, path: &str) -> std::io::Result<()> {
+    let tmp = format!("{snapshot_dir}/latest.tmp");
+    let dst = format!("{snapshot_dir}/latest.json");
+    std::fs::write(&tmp, format!("{{\"version\":{version},\"path\":\"{path}\"}}").as_bytes())?;
+    std::fs::rename(&tmp, &dst)?;
+    Ok(())
+}
+
+/// Read {version, path} from latest.json, returns None if missing or malformed.
+pub fn read_latest(snapshot_dir: &str) -> Option<(u64, String)> {
+    let content = std::fs::read_to_string(format!("{snapshot_dir}/latest.json")).ok()?;
+    let meta: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let version = meta["version"].as_u64()?;
+    let path = meta["path"].as_str()?.to_string();
+    Some((version, path))
+}
+
 /// Load a snapshot file into a new DAWG.
 /// File format: one "word count" per line, already sorted.
 pub async fn load(path: &str) -> Result<Dawg, String> {
@@ -126,6 +144,37 @@ mod tests {
         let (word, count) = parse_line("hello world 3").unwrap();
         assert_eq!(word, "hello world");
         assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_write_and_read_latest() {
+        let dir = tempdir().unwrap();
+        let snap_dir = dir.path().to_str().unwrap();
+
+        write_latest(snap_dir, 3, "/snapshots/snapshot_3.txt").unwrap();
+
+        let (version, path) = read_latest(snap_dir).unwrap();
+        assert_eq!(version, 3);
+        assert_eq!(path, "/snapshots/snapshot_3.txt");
+    }
+
+    #[test]
+    fn test_read_latest_missing_returns_none() {
+        let dir = tempdir().unwrap();
+        assert!(read_latest(dir.path().to_str().unwrap()).is_none());
+    }
+
+    #[test]
+    fn test_write_latest_overwrites() {
+        let dir = tempdir().unwrap();
+        let snap_dir = dir.path().to_str().unwrap();
+
+        write_latest(snap_dir, 1, "/snapshots/snapshot_1.txt").unwrap();
+        write_latest(snap_dir, 5, "/snapshots/snapshot_5.txt").unwrap();
+
+        let (version, path) = read_latest(snap_dir).unwrap();
+        assert_eq!(version, 5);
+        assert_eq!(path, "/snapshots/snapshot_5.txt");
     }
 
     #[tokio::test]
