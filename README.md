@@ -12,6 +12,8 @@ A Rust library implementing two efficient lexicon data structures — **Trie** a
 - [Data structures](#data-structures)
 - [Features](#features)
 - [Rust usage](#rust-usage)
+  - [API](#api-1)
+  - [Batch APIs](#batch-apis-1)
 - [Python usage](#python-usage)
   - [API](#api)
   - [Batch APIs](#batch-apis)
@@ -94,27 +96,58 @@ Both `Trie` and `DAWG` expose the same API:
 lexrs = "1.0"
 ```
 
+### API
+
 ```rust
 use lexrs::{Trie, Dawg};
 
-// Trie
+// ── Trie ──────────────────────────────────────────────────────────────────────
 let mut trie = Trie::new();
-trie.add("hello", 1).unwrap();
+trie.add("hello", 5).unwrap();                    // word + optional count
 trie.add_all(vec!["world".to_string(), "foo".to_string()]).unwrap();
+trie.add_from_file("words.txt").unwrap();
 
-assert!(trie.contains("hello"));
-assert!(trie.contains_prefix("wor"));
+trie.contains("hello");                           // true
+trie.contains_prefix("wor");                      // true
+trie.word_count();                                // total words stored
+trie.node_count();                                // total nodes in structure
 
-let results = trie.search("h*").unwrap();       // wildcard
-let fuzzy   = trie.search_within_distance("helo", 1); // Levenshtein ≤ 1
+trie.search("h*").unwrap();                       // wildcard → Vec<String>
+trie.search_with_count("h*").unwrap();            // → Vec<(String, usize)>
+trie.search_with_prefix("wo");                    // prefix completion → Vec<String>
+trie.search_with_prefix_count("wo");              // → Vec<(String, usize)>
+trie.search_within_distance("helo", 1);           // fuzzy (Levenshtein ≤ 1) → Vec<String>
+trie.search_within_distance_count("helo", 1);     // → Vec<(String, usize)>
 
-// DAWG (words must be inserted in alphabetical order)
+// ── DAWG (words must be inserted in alphabetical order) ───────────────────────
 let mut dawg = Dawg::new();
 dawg.add_all(vec!["apple".to_string(), "apply".to_string(), "apt".to_string()]).unwrap();
 // add_all sorts automatically; call reduce() if you use add() directly
 dawg.reduce();
 
-assert!(dawg.contains("apple"));
+dawg.contains("apple");                           // true
+dawg.search("ap*").unwrap();                      // wildcard
+dawg.search_within_distance("aple", 1);           // fuzzy
+```
+
+### Batch APIs
+
+Batch methods run all inputs in parallel via Rayon and return results in input order.
+
+```rust
+let words = vec!["apple", "apply", "cherry", "apt"];
+
+trie.batch_contains(&words);
+// [true, true, false, true]
+
+trie.batch_search(&["ap*", "b*", "xyz*"]);
+// [["apple", "apply", "apt"], ["banana"], []]
+
+trie.batch_search_with_prefix(&["app", "ban"]);
+// [["apple", "apply"], ["banana"]]
+
+trie.batch_search_within_distance(&["aple", "bannana"], 1);
+// [["apple"], ["banana"]]
 ```
 
 ## Python usage
