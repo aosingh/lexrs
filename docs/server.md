@@ -263,15 +263,37 @@ curl 'http://localhost:3001/contains?q=appl'
 
 ### Batch endpoints
 
-All batch endpoints accept `POST` with a JSON body and return results in the same order as the input.
+All batch endpoints accept `POST` with a JSON body and return results in the same order as the input. Each batch call processes all inputs in parallel using Rayon before returning a single JSON response.
+
+**Setup — ingest a test lexicon first (writer on port 3000):**
+
+```bash
+curl -X POST http://localhost:3000/words \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "words": [
+      {"word": "apple",  "count": 10},
+      {"word": "apply",  "count": 3},
+      {"word": "apt",    "count": 1},
+      {"word": "banana", "count": 5},
+      "cherry"
+    ]
+  }'
+
+curl -X POST http://localhost:3000/compact
+```
+
+Wait up to 30 seconds for the reader to pick up the new snapshot, then run any of the batch calls below.
+
+---
 
 **Membership — multiple words**
 
 ```bash
 curl -X POST http://localhost:3001/batch/contains \
   -H 'Content-Type: application/json' \
-  -d '{"words": ["apple", "cherry", "apply"]}'
-# [true, false, true]
+  -d '{"words": ["apple", "cherry", "apricot", "apply"]}'
+# [true, true, false, true]
 ```
 
 **Wildcard search — multiple patterns**
@@ -279,8 +301,8 @@ curl -X POST http://localhost:3001/batch/contains \
 ```bash
 curl -X POST http://localhost:3001/batch/search \
   -H 'Content-Type: application/json' \
-  -d '{"patterns": ["ap*", "b*"]}'
-# [["apple", "apply", "apt"], ["banana"]]
+  -d '{"patterns": ["ap*", "b*", "c?erry"]}'
+# [["apple", "apply", "apt"], ["banana"], ["cherry"]]
 ```
 
 **Prefix completion — multiple prefixes**
@@ -288,8 +310,8 @@ curl -X POST http://localhost:3001/batch/search \
 ```bash
 curl -X POST http://localhost:3001/batch/prefix \
   -H 'Content-Type: application/json' \
-  -d '{"prefixes": ["app", "ban"]}'
-# [["apple", "apply"], ["banana"]]
+  -d '{"prefixes": ["app", "ban", "ch"]}'
+# [["apple", "apply"], ["banana"], ["cherry"]]
 ```
 
 **Fuzzy search — multiple words**
@@ -297,11 +319,11 @@ curl -X POST http://localhost:3001/batch/prefix \
 ```bash
 curl -X POST http://localhost:3001/batch/search_within_distance \
   -H 'Content-Type: application/json' \
-  -d '{"words": ["aple", "bannana"], "dist": 1}'
-# [["apple"], ["banana"]]
+  -d '{"words": ["aple", "bannana", "cheery"], "dist": 1}'
+# [["apple"], ["banana"], ["cherry"]]
 ```
 
-`dist` defaults to `0` if omitted. Each batch call processes all inputs in parallel using Rayon before returning a single JSON response.
+`dist` defaults to `0` if omitted.
 
 ---
 

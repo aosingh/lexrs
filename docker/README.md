@@ -55,6 +55,10 @@ Docker Compose setup for running the full lexrs stack locally or in production.
 | Wildcard search | `GET localhost/search?q=ap*` | reader (round-robin) | 3001 |
 | Prefix search | `GET localhost/prefix?q=app` | reader (round-robin) | 3001 |
 | Exact lookup | `GET localhost/contains?q=apple` | reader (round-robin) | 3001 |
+| Batch membership | `POST localhost/batch/contains` | reader (round-robin) | 3001 |
+| Batch wildcard | `POST localhost/batch/search` | reader (round-robin) | 3001 |
+| Batch prefix | `POST localhost/batch/prefix` | reader (round-robin) | 3001 |
+| Batch fuzzy | `POST localhost/batch/search_within_distance` | reader (round-robin) | 3001 |
 | Health check | `GET localhost/health` | reader | 3001 |
 | Consul UI | `http://localhost:8500` | consul | 8500 |
 
@@ -80,10 +84,62 @@ Consul must pass its health check (`consul members`) before writer or reader sta
 | URL pattern | Proxied to |
 |---|---|
 | `/words`, `/compact`, `/snapshot/*` | `writer:3000` |
-| `/search`, `/prefix`, `/contains`, `/stats` | `readers:3001` (round-robin) |
+| `/search`, `/prefix`, `/contains`, `/stats`, `/batch/*` | `readers:3001` (round-robin) |
 | `/health` | `readers:3001` |
 
 All traffic enters on port **80**. Writer is also directly reachable on **3000** for debugging.
+
+## Quick start — API examples
+
+After `docker compose up --build`, ingest a test lexicon and exercise every endpoint type:
+
+```bash
+# 1. Ingest words with per-word counts
+curl -X POST http://localhost/words \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "words": [
+      {"word": "apple",  "count": 10},
+      {"word": "apply",  "count": 3},
+      {"word": "apt",    "count": 1},
+      {"word": "banana", "count": 5},
+      "cherry"
+    ]
+  }'
+
+# 2. Flush to snapshot (readers pick it up within ~30 s)
+curl -X POST http://localhost/compact
+
+# 3. Single-word queries
+curl 'http://localhost/contains?q=apple'          # {"found":true}
+curl 'http://localhost/prefix?q=app'              # ["apple","apply"]
+curl 'http://localhost/search?q=ap*'              # ["apple","apply","apt"]
+curl 'http://localhost/search?q=aple&dist=1'      # ["apple"]
+
+# 4. Batch membership
+curl -X POST http://localhost/batch/contains \
+  -H 'Content-Type: application/json' \
+  -d '{"words": ["apple", "cherry", "apricot", "apply"]}'
+# [true, true, false, true]
+
+# 5. Batch wildcard
+curl -X POST http://localhost/batch/search \
+  -H 'Content-Type: application/json' \
+  -d '{"patterns": ["ap*", "b*", "c?erry"]}'
+# [["apple","apply","apt"], ["banana"], ["cherry"]]
+
+# 6. Batch prefix
+curl -X POST http://localhost/batch/prefix \
+  -H 'Content-Type: application/json' \
+  -d '{"prefixes": ["app", "ban", "ch"]}'
+# [["apple","apply"], ["banana"], ["cherry"]]
+
+# 7. Batch fuzzy
+curl -X POST http://localhost/batch/search_within_distance \
+  -H 'Content-Type: application/json' \
+  -d '{"words": ["aple", "bannana", "cheery"], "dist": 1}'
+# [["apple"], ["banana"], ["cherry"]]
+```
 
 ## Shared volume
 
