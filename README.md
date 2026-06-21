@@ -207,17 +207,15 @@ Consecutive wildcards are normalized (`**` → `*`, `?*` → `*`).
 The [`docker/`](https://github.com/aosingh/lexrs/tree/main/docker) directory has a Compose file that brings up the entire stack:
 
 ```
-Consul ──► writer ──► (snapshots on shared volume)
-                              │
-              ┌───────────────┘
-              ▼
-         reader-1   reader-2
-              │         │
-              └────┬────┘
-                   ▼
                  nginx  (port 80)
-                 /words, /compact  → writer
-                 /search, /prefix, /contains, /batch/*  → readers (round-robin)
+                   │
+        ┌──────────┴───────────┐
+        ▼                      ▼ (round-robin)
+      writer              reader-1   reader-2
+        │                      ▲          ▲
+        ├──► snapshots ─────────┴──────────┘
+        │    (shared volume)
+        └──► Consul KV ──► readers watch & hot-reload
 ```
 
 ```bash
