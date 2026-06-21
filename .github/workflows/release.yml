@@ -34,7 +34,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             suffix: ".exe"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -62,7 +62,7 @@ jobs:
           cp target/$TARGET/release/writer$SUFFIX dist/writer-$TARGET$SUFFIX
           cp target/$TARGET/release/reader$SUFFIX dist/reader-$TARGET$SUFFIX
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: binaries-${{ matrix.target }}
           path: dist/
@@ -74,7 +74,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: binaries-*
           path: dist/
